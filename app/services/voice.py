@@ -108,6 +108,38 @@ def get_chatterbox_voices() -> list[str]:
     return voices
 
 
+def get_elevenlabs_voices() -> list[str]:
+    """Get available ElevenLabs voices"""
+    voices_with_gender = [
+        ("21m00Tcm4TlvDq8ikWAM", "Rachel", "Female"),
+        ("AZnzlk1XvdvUeBnXmlld", "Domi", "Female"),
+        ("EXAVITQu4vr4xnSDxMaL", "Bella", "Female"),
+        ("ErXwobaYiN019PkySvjV", "Antoni", "Male"),
+        ("MF3mGyEYCl7XYWbV9V6O", "Elli", "Female"),
+        ("TxGEqnHWrfWFTfGW9XjX", "Josh", "Male"),
+        ("VR6AewLTigWG4xSOukaG", "Arnold", "Male"),
+        ("pNInz6obpgDQGcFmaJgB", "Adam", "Male"),
+        ("yoZ06aMxZJJ28mfd3POQ", "Sam", "Male"),
+        ("jBpfuIE2acCO8z3wKNLl", "Gigi", "Female"),
+        ("onwK4e9ZLuTAKqWW03F9", "Daniel", "Male"),
+        ("XB0fDUnXU5powFXDhCwa", "Charlotte", "Female"),
+        ("pFZP5JQG7iQjIQuC4Bku", "Lily", "Female"),
+        ("TX3LPaxmHKxFdv7VOQHJ", "Liam", "Male"),
+        ("bIHbv24MWmeRgasZH58o", "Will", "Male"),
+        ("cgSgspJ2msm6clMCkdW9", "Jessica", "Female"),
+        ("iP95p4xoKVk53GoZ742B", "Chris", "Male"),
+        ("nPczCjzI2devNBz1zQrb", "Brian", "Male"),
+        ("SAz9YHcvj6GT2YYXdXww", "River", "Neutral"),
+        ("CwhRBWXzGAHq8TQ4Fs17", "Roger", "Male"),
+        ("EkK5I93UQHFLzoSfMRqy", "Matilda", "Female"),
+    ]
+
+    return [
+        f"elevenlabs:{voice_id}:{name}-{gender}"
+        for voice_id, name, gender in voices_with_gender
+    ]
+
+
 def get_all_azure_voices(filter_locals=None) -> list[str]:
     azure_voices_str = """
 Name: af-ZA-AdriNeural
@@ -1148,6 +1180,11 @@ def is_chatterbox_voice(voice_name: str):
     return voice_name.startswith("chatterbox:")
 
 
+def is_elevenlabs_voice(voice_name: str):
+    """Check if voice is ElevenLabs"""
+    return voice_name.startswith("elevenlabs:")
+
+
 def tts(
     text: str,
     voice_name: str,
@@ -1178,6 +1215,16 @@ def tts(
         # Chatterbox TTS with WhisperX timestamps
         # 格式: chatterbox:type:name-Gender
         return chatterbox_tts(text, voice_name, voice_rate, voice_file, voice_volume)
+    elif is_elevenlabs_voice(voice_name):
+        # ElevenLabs TTS
+        # 格式: elevenlabs:voice_id:name-Gender
+        parts = voice_name.split(":")
+        if len(parts) >= 2:
+            voice_id = parts[1]
+            return elevenlabs_tts(text, voice_id, voice_rate, voice_file, voice_volume)
+        else:
+            logger.error(f"Invalid ElevenLabs voice name format: {voice_name}")
+            return None
     return azure_tts_v1(text, voice_name, voice_rate, voice_file)
 
 
@@ -1222,6 +1269,116 @@ def azure_tts_v1(
             return sub_maker
         except Exception as e:
             logger.error(f"failed, error: {str(e)}")
+    return None
+
+
+def elevenlabs_tts(
+    text: str,
+    voice_id: str,
+    voice_rate: float,
+    voice_file: str,
+    voice_volume: float = 1.0,
+) -> Union[SubMaker, None]:
+    """
+    Generate speech using ElevenLabs API
+
+    Args:
+        text: Text to convert to speech
+        voice_id: ElevenLabs voice ID
+        voice_rate: Speech rate (not directly supported, mapped to stability)
+        voice_file: Output audio file path
+        voice_volume: Speech volume
+
+    Returns:
+        SubMaker object or None
+    """
+    text = text.strip()
+    api_key = config.elevenlabs.get("api_key", "")
+
+    if not api_key:
+        logger.error("ElevenLabs API key is not set. Get one at https://elevenlabs.io")
+        return None
+
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
+
+    headers = {
+        "xi-api-key": api_key,
+        "Content-Type": "application/json",
+        "Accept": "audio/mpeg",
+    }
+
+    payload = {
+        "text": text,
+        "model_id": "eleven_multilingual_v2",
+        "voice_settings": {
+            "stability": 0.5,
+            "similarity_boost": 0.75,
+            "style": 0.0,
+            "use_speaker_boost": True,
+        },
+    }
+
+    for i in range(3):
+        try:
+            logger.info(f"start elevenlabs tts, voice_id: {voice_id}, try: {i + 1}")
+
+            response = requests.post(url, json=payload, headers=headers)
+
+            if response.status_code == 200:
+                with open(voice_file, "wb") as f:
+                    f.write(response.content)
+
+                sub_maker = ensure_submaker_compatibility(SubMaker())
+
+                try:
+                    from moviepy import AudioFileClip
+
+                    audio_clip = AudioFileClip(voice_file)
+                    audio_duration = audio_clip.duration
+                    audio_clip.close()
+
+                    audio_duration_100ns = int(audio_duration * 10000000)
+
+                    sentences = utils.split_string_by_punctuations(text)
+
+                    if sentences:
+                        total_chars = sum(len(s) for s in sentences)
+                        char_duration = (
+                            audio_duration_100ns / total_chars if total_chars > 0 else 0
+                        )
+
+                        current_offset = 0
+                        for sentence in sentences:
+                            if not sentence.strip():
+                                continue
+
+                            sentence_chars = len(sentence)
+                            sentence_duration = int(sentence_chars * char_duration)
+
+                            sub_maker.subs.append(sentence)
+                            sub_maker.offset.append(
+                                (current_offset, current_offset + sentence_duration)
+                            )
+
+                            current_offset += sentence_duration
+                    else:
+                        sub_maker.subs = [text]
+                        sub_maker.offset = [(0, audio_duration_100ns)]
+
+                except Exception as e:
+                    logger.warning(f"Failed to create accurate subtitles: {str(e)}")
+                    sub_maker.subs = [text]
+                    sub_maker.offset = [(0, 100000000)]
+
+                logger.success(f"elevenlabs tts succeeded: {voice_file}")
+                return sub_maker
+            else:
+                logger.error(
+                    f"elevenlabs tts failed with status {response.status_code}: {response.text}"
+                )
+        except Exception as e:
+            logger.error(f"elevenlabs tts failed: {str(e)}")
+
     return None
 
 

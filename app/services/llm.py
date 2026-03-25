@@ -40,6 +40,12 @@ def _generate_response(prompt: str) -> str:
                 base_url = config.app.get("ollama_base_url", "")
                 if not base_url:
                     base_url = "http://localhost:11434/v1"
+            elif llm_provider == "lmstudio":
+                api_key = "lm-studio"  # any string works
+                model_name = config.app.get("lmstudio_model_name")
+                base_url = config.app.get("lmstudio_base_url", "")
+                if not base_url:
+                    base_url = "http://localhost:1234/v1"
             elif llm_provider == "openai":
                 api_key = config.app.get("openai_api_key")
                 model_name = config.app.get("openai_model_name")
@@ -125,7 +131,7 @@ def _generate_response(prompt: str) -> str:
                 except Exception as e:
                     raise Exception(f"[{llm_provider}] error: {str(e)}")
 
-            if llm_provider not in ["pollinations", "ollama"]:  # Skip validation for providers that don't require API key
+            if llm_provider not in ["pollinations", "ollama", "lmstudio"]:  # Skip validation for providers that don't require API key
                 if not api_key:
                     raise ValueError(
                         f"{llm_provider}: api_key is not set, please set it in the config.toml file."

@@ -47,6 +47,12 @@ ollama_base_url = ""
 # Check your available models at https://ollama.com/library
 ollama_model_name = ""
 
+########## LM Studio Settings
+# Runs locally, no API key needed
+# Download models from LM Studio's interface
+lmstudio_base_url = ""
+lmstudio_model_name = ""
+
 ########## OpenAI API Key
 # Get your API key at https://platform.openai.com/api-keys
 openai_api_key = ""
@@ -211,6 +217,12 @@ speech_region = ""
 [siliconflow]
 # SiliconFlow API Key
 # Get your API key at https://siliconflow.cn
+api_key = ""
+
+[elevenlabs]
+# ElevenLabs API Key
+# Get your API key at https://elevenlabs.io
+# Free tier includes characters per month
 api_key = ""
 
 [ui]

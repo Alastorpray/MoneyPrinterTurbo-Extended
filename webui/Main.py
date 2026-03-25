@@ -102,7 +102,14 @@ support_locales = [
     "zh-TW",
     "de-DE",
     "en-US",
+    "es-ES",
+    "es-MX",
     "fr-FR",
+    "pt-BR",
+    "pt-PT",
+    "it-IT",
+    "ja-JP",
+    "ko-KR",
     "vi-VN",
     "th-TH",
 ]
@@ -199,8 +206,13 @@ def tr(key):
     return loc.get("Translation", {}).get(key, key)
 
 
-# 创建基础设置折叠框
-if not config.app.get("hide_config", False):
+# Toggle to show/hide basic settings (always visible so user can toggle back)
+hide_config = st.checkbox(
+    tr("Hide Basic Settings"), value=config.app.get("hide_config", False)
+)
+config.app["hide_config"] = hide_config
+
+if not hide_config:
     with st.expander(tr("Basic Settings"), expanded=False):
         config_panels = st.columns(3)
         left_config_panel = config_panels[0]
@@ -209,11 +221,6 @@ if not config.app.get("hide_config", False):
 
         # 左侧面板 - 日志设置
         with left_config_panel:
-            # 是否隐藏配置面板
-            hide_config = st.checkbox(
-                tr("Hide Basic Settings"), value=config.app.get("hide_config", False)
-            )
-            config.app["hide_config"] = hide_config
 
             # 是否禁用日志显示
             hide_log = st.checkbox(
@@ -233,6 +240,7 @@ if not config.app.get("hide_config", False):
                 "DeepSeek",
                 "Gemini",
                 "Ollama",
+                "LMStudio",
                 "G4f",
                 "OneAPI",
                 "Cloudflare",
@@ -269,15 +277,35 @@ if not config.app.get("hide_config", False):
                     llm_model_name = "qwen:7b"
                 if not llm_base_url:
                     llm_base_url = "http://localhost:11434/v1"
+                if not llm_api_key:
+                    llm_api_key = "not-needed"
 
                 with llm_helper:
+                    st.success("**Ollama runs locally — no API key needed!**")
                     tips = """
-                            ##### Ollama配置说明
-                            - **API Key**: 随便填写，比如 123
-                            - **Base Url**: 一般为 http://localhost:11434/v1
-                                - 如果 `MoneyPrinterTurbo` 和 `Ollama` **不在同一台机器上**，需要填写 `Ollama` 机器的IP地址
-                                - 如果 `MoneyPrinterTurbo` 是 `Docker` 部署，建议填写 `http://host.docker.internal:11434/v1`
-                            - **Model Name**: 使用 `ollama list` 查看，比如 `qwen:7b`
+                            ##### Ollama Configuration
+                            - **API Key**: Not required (runs locally, leave as-is)
+                            - **Base Url**: Default `http://localhost:11434/v1`
+                                - If Ollama is on a different machine, use that machine's IP address
+                                - For Docker deployments, use `http://host.docker.internal:11434/v1`
+                            - **Model Name**: Run `ollama list` to see available models
+                            """
+
+            if llm_provider == "lmstudio":
+                if not llm_base_url:
+                    llm_base_url = "http://localhost:1234/v1"
+                if not llm_api_key:
+                    llm_api_key = "lm-studio"
+
+                with llm_helper:
+                    st.success("**LM Studio runs locally — no API key needed!**")
+                    tips = """
+                            ##### LM Studio Configuration
+                            - **API Key**: Not required (runs locally, leave as-is)
+                            - **Base Url**: Default `http://localhost:1234/v1`
+                            - **Model Name**: Use the model name loaded in LM Studio
+
+                            Download models directly from LM Studio's interface and load them before generating videos.
                             """
 
             if llm_provider == "openai":
@@ -394,9 +422,12 @@ if not config.app.get("hide_config", False):
                             """
 
             if tips and config.ui["language"] == "zh":
-                st.warning(
-                    "中国用户建议使用 **DeepSeek** 或 **Moonshot** 作为大模型提供商\n- 国内可直接访问，不需要VPN \n- 注册就送额度，基本够用"
-                )
+                if llm_provider != "ollama":
+                    st.warning(
+                        "中国用户建议使用 **DeepSeek** 或 **Moonshot** 作为大模型提供商\n- 国内可直接访问，不需要VPN \n- 注册就送额度，基本够用"
+                    )
+                st.info(tips)
+            elif tips:
                 st.info(tips)
 
             st_llm_api_key = st.text_input(
@@ -453,13 +484,23 @@ if not config.app.get("hide_config", False):
 
             pexels_api_key = get_keys_from_config("pexels_api_keys")
             pexels_api_key = st.text_input(
-                tr("Pexels API Key"), value=pexels_api_key, type="password"
+                tr("Pexels API Key"),
+                value=pexels_api_key,
+                type="password",
+                help="Get your free API key at https://www.pexels.com/api/ — required for Pexels video source",
             )
+            if pexels_api_key:
+                st.caption("Pexels API Key configured")
+            else:
+                st.warning("Pexels API Key is required to download stock videos")
             save_keys_to_config("pexels_api_keys", pexels_api_key)
 
             pixabay_api_key = get_keys_from_config("pixabay_api_keys")
             pixabay_api_key = st.text_input(
-                tr("Pixabay API Key"), value=pixabay_api_key, type="password"
+                tr("Pixabay API Key"),
+                value=pixabay_api_key,
+                type="password",
+                help="Get your free API key at https://pixabay.com/api/docs/ — required for Pixabay video source",
             )
             save_keys_to_config("pixabay_api_keys", pixabay_api_key)
 
@@ -851,6 +892,7 @@ with middle_panel:
             ("azure-tts-v2", "Azure TTS V2"),
             ("siliconflow", "SiliconFlow TTS"),
             ("chatterbox", "Chatterbox TTS (Open Source)"),
+            ("elevenlabs", "ElevenLabs TTS"),
         ]
 
         # 获取保存的TTS服务器，默认为v1
@@ -880,6 +922,8 @@ with middle_panel:
         elif selected_tts_server == "chatterbox":
             # 获取Chatterbox的声音列表
             filtered_voices = voice.get_chatterbox_voices()
+        elif selected_tts_server == "elevenlabs":
+            filtered_voices = voice.get_elevenlabs_voices()
         else:
             # 获取Azure的声音列表
             all_voices = voice.get_all_azure_voices(filter_locals=None)
@@ -920,6 +964,7 @@ with middle_panel:
             saved_voice_name_index = 0
 
         # 确保有声音可选
+        voice_name = ""
         if friendly_names:
             selected_friendly_name = st.selectbox(
                 tr("Speech Synthesis"),
@@ -1061,6 +1106,27 @@ with middle_panel:
             )
 
             config.siliconflow["api_key"] = siliconflow_api_key
+
+        # ElevenLabs API key input
+        if selected_tts_server == "elevenlabs" or (
+            voice_name and voice.is_elevenlabs_voice(voice_name)
+        ):
+            saved_elevenlabs_api_key = config.elevenlabs.get("api_key", "")
+
+            elevenlabs_api_key = st.text_input(
+                tr("ElevenLabs API Key"),
+                value=saved_elevenlabs_api_key,
+                type="password",
+                key="elevenlabs_api_key_input",
+                help="Get your API key at https://elevenlabs.io — free tier includes characters per month",
+            )
+
+            if elevenlabs_api_key:
+                st.caption("ElevenLabs API Key configured")
+            else:
+                st.warning("ElevenLabs API Key is required")
+
+            config.elevenlabs["api_key"] = elevenlabs_api_key
 
         params.voice_volume = st.selectbox(
             tr("Speech Volume"),
