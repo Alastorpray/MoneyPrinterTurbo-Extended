@@ -22,7 +22,7 @@ from app.models.schema import (
     VideoParams,
     VideoTransitionMode,
 )
-from app.services import llm, voice
+from app.services import llm, voice, ai_images
 from app.services import task as tm
 from app.utils import utils
 
@@ -66,6 +66,10 @@ if "video_terms" not in st.session_state:
     st.session_state["video_terms"] = ""
 if "ui_language" not in st.session_state:
     st.session_state["ui_language"] = config.ui.get("language", system_locale)
+if "ai_image_prompts" not in st.session_state:
+    st.session_state["ai_image_prompts"] = []
+if "topic_research" not in st.session_state:
+    st.session_state["topic_research"] = ""
 
 # 加载语言文件
 locales = utils.load_locales(i18n_dir)
@@ -297,16 +301,47 @@ if not hide_config:
                 if not llm_api_key:
                     llm_api_key = "lm-studio"
 
+                # Auto-detect models from LM Studio
+                lmstudio_models = []
+                try:
+                    import requests as _requests
+                    _lms_resp = _requests.get(f"{llm_base_url.rstrip('/').replace('/v1','')}/v1/models", timeout=3)
+                    if _lms_resp.status_code == 200:
+                        _lms_data = _lms_resp.json().get("data", [])
+                        lmstudio_models = [
+                            m["id"] for m in _lms_data
+                            if "embed" not in m["id"].lower()
+                        ]
+                except Exception:
+                    pass
+
                 with llm_helper:
-                    st.success("**LM Studio runs locally — no API key needed!**")
+                    if lmstudio_models:
+                        st.success(f"**LM Studio connected — {len(lmstudio_models)} model(s) detected!**")
+                    else:
+                        st.warning("**LM Studio not detected.** Make sure it's running with the server started.")
                     tips = """
                             ##### LM Studio Configuration
                             - **API Key**: Not required (runs locally, leave as-is)
                             - **Base Url**: Default `http://localhost:1234/v1`
-                            - **Model Name**: Use the model name loaded in LM Studio
-
-                            Download models directly from LM Studio's interface and load them before generating videos.
+                            - Select a model from the dropdown below (auto-detected from LM Studio)
                             """
+
+                if lmstudio_models:
+                    # Show detected models in a selectbox
+                    saved_model = config.app.get("lmstudio_model_name", "")
+                    model_index = 0
+                    if saved_model in lmstudio_models:
+                        model_index = lmstudio_models.index(saved_model)
+
+                    selected_lms_model = st.selectbox(
+                        "LM Studio Model (auto-detected)",
+                        options=lmstudio_models,
+                        index=model_index,
+                        key="lmstudio_model_select",
+                    )
+                    llm_model_name = selected_lms_model
+                    config.app["lmstudio_model_name"] = selected_lms_model
 
             if llm_provider == "openai":
                 if not llm_model_name:
@@ -377,15 +412,14 @@ if not hide_config:
 
             if llm_provider == "gemini":
                 if not llm_model_name:
-                    llm_model_name = "gemini-1.0-pro"
+                    llm_model_name = "gemini-2.5-flash"
 
                 with llm_helper:
                     tips = """
-                            ##### Gemini 配置说明
-                            > 需要VPN开启全局流量模式
-                            - **API Key**: [点击到官网申请](https://ai.google.dev/)
-                            - **Base Url**: 留空
-                            - **Model Name**: 比如 gemini-1.0-pro
+                            ##### Gemini Configuration
+                            - **API Key**: [Get it here](https://aistudio.google.com/apikey)
+                            - **Base Url**: Leave empty
+                            - **Model**: Select from dropdown
                             """
 
             if llm_provider == "deepseek":
@@ -430,12 +464,43 @@ if not hide_config:
             elif tips:
                 st.info(tips)
 
-            st_llm_api_key = st.text_input(
-                tr("API Key"), value=llm_api_key, type="password"
-            )
+            # Hide API Key for local providers
+            if llm_provider not in ["ollama", "lmstudio"]:
+                st_llm_api_key = st.text_input(
+                    tr("API Key"), value=llm_api_key, type="password"
+                )
+            else:
+                st_llm_api_key = llm_api_key
+
             st_llm_base_url = st.text_input(tr("Base Url"), value=llm_base_url)
+
+            # Model Name selection
             st_llm_model_name = ""
-            if llm_provider != "ernie":
+            if llm_provider == "lmstudio":
+                st_llm_model_name = llm_model_name
+            elif llm_provider == "gemini":
+                gemini_models = [
+                    ("Gemini 2.0 Flash Lite (fastest, cheapest)", "gemini-2.0-flash-lite"),
+                    ("Gemini 2.5 Flash Lite", "gemini-2.5-flash-lite"),
+                    ("Gemini 2.5 Flash (recommended)", "gemini-2.5-flash"),
+                    ("Gemini 2.0 Flash", "gemini-2.0-flash"),
+                    ("Gemini 2.5 Pro (most capable)", "gemini-2.5-pro"),
+                ]
+                gemini_model_ids = [m[1] for m in gemini_models]
+                try:
+                    gemini_default_idx = gemini_model_ids.index(llm_model_name)
+                except ValueError:
+                    gemini_default_idx = 2  # default to gemini-2.5-flash
+                selected_gemini = st.selectbox(
+                    tr("Model Name"),
+                    options=range(len(gemini_models)),
+                    format_func=lambda x: gemini_models[x][0],
+                    index=gemini_default_idx,
+                    key="gemini_model_select",
+                )
+                st_llm_model_name = gemini_models[selected_gemini][1]
+                config.app[f"{llm_provider}_model_name"] = st_llm_model_name
+            elif llm_provider != "ernie":
                 st_llm_model_name = st.text_input(
                     tr("Model Name"),
                     value=llm_model_name,
@@ -504,6 +569,20 @@ if not hide_config:
             )
             save_keys_to_config("pixabay_api_keys", pixabay_api_key)
 
+            st.write("**AI Image Generation (Google AI Studio)**")
+            google_ai_api_key = config.app.get("gemini_api_key", "")
+            google_ai_api_key = st.text_input(
+                "Google AI / Gemini API Key",
+                value=google_ai_api_key,
+                type="password",
+                help="Get your API key at https://aistudio.google.com/apikey — used for both Gemini LLM and AI Generated images",
+            )
+            if google_ai_api_key:
+                st.caption("Google AI API Key configured")
+            else:
+                st.caption("Required only if you use Gemini LLM or 'AI Generated' video source")
+            config.app["gemini_api_key"] = google_ai_api_key
+
 llm_provider = config.app.get("llm_provider", "").lower()
 panel = st.columns(3)
 left_panel = panel[0]
@@ -540,12 +619,80 @@ with left_panel:
         )
         params.video_language = video_languages[selected_index][1]
 
+        # Spanish TTS is slower (~1.5 words/sec) vs English (~2.5 words/sec)
+        is_spanish = params.video_language.lower().startswith("es") if params.video_language else False
+        wps = 1.5 if is_spanish else 2.5
+        video_duration_options = [
+            (f"~30 seconds (~{int(30 * wps)} words)", 30),
+            (f"~1 minute (~{int(60 * wps)} words)", 60),
+            (f"~1.5 minutes (~{int(90 * wps)} words)", 90),
+            (f"~2 minutes (~{int(120 * wps)} words)", 120),
+            (f"~3 minutes (~{int(180 * wps)} words)", 180),
+            (f"~5 minutes (~{int(300 * wps)} words)", 300),
+        ]
+        selected_duration = st.selectbox(
+            "Video Duration",
+            options=range(len(video_duration_options)),
+            format_func=lambda x: video_duration_options[x][0],
+            index=1,
+            key="video_duration_select",
+        )
+        target_duration = video_duration_options[selected_duration][1]
+
+        # Research button — only if Google AI key is available
+        google_ai_key = config.app.get("gemini_api_key", "")
+        if google_ai_key:
+            if st.button("🔍 Research Topic & Visual Style", key="research_topic"):
+                if not params.video_subject:
+                    st.error(tr("Please Enter the Video Subject"))
+                else:
+                    with st.spinner(f"Researching \"{params.video_subject}\" (topic + visual style)..."):
+                        research = ai_images.research_topic(
+                            params.video_subject,
+                            language=params.video_language,
+                            api_key=google_ai_key,
+                        )
+                        if research:
+                            st.session_state["topic_research"] = research.get("topic_research", "")
+                            st.session_state["ai_visual_style"] = research.get("visual_style", "")
+                        else:
+                            st.error("Research failed. Check your Google AI API key.")
+
+        if st.session_state["topic_research"]:
+            topic_research = st.text_area(
+                "Research Context",
+                value=st.session_state["topic_research"],
+                height=150,
+                help="Factual context from web research. The AI will use this to write a more informed script. You can edit it.",
+            )
+            st.session_state["topic_research"] = topic_research
+            if st.button("Clear Research", key="clear_research"):
+                st.session_state["topic_research"] = ""
+                st.session_state["ai_visual_style"] = ""
+                st.rerun()
+
+        # Number of paragraphs (= number of scenes/images for AI generated)
+        paragraph_number = st.number_input(
+            "Number of paragraphs (scenes)",
+            min_value=1,
+            max_value=20,
+            value=config.app.get("paragraph_number", 8),
+            step=1,
+            help="Each paragraph = 1 visual scene. For AI Generated images, each paragraph gets its own image.",
+            key="paragraph_number_input",
+        )
+        config.app["paragraph_number"] = paragraph_number
+
         if st.button(
             tr("Generate Video Script and Keywords"), key="auto_generate_script"
         ):
             with st.spinner(tr("Generating Video Script and Keywords")):
                 script = llm.generate_script(
-                    video_subject=params.video_subject, language=params.video_language
+                    video_subject=params.video_subject,
+                    language=params.video_language,
+                    paragraph_number=paragraph_number,
+                    target_duration=target_duration,
+                    research_context=st.session_state.get("topic_research", ""),
                 )
                 terms = llm.generate_terms(params.video_subject, script)
                 if "Error: " in script:
@@ -585,6 +732,7 @@ with middle_panel:
         video_sources = [
             (tr("Pexels"), "pexels"),
             (tr("Pixabay"), "pixabay"),
+            ("AI Generated (Google Imagen)", "ai_generated"),
             (tr("Local file"), "local"),
             (tr("TikTok"), "douyin"),
             (tr("Bilibili"), "bilibili"),
@@ -611,6 +759,70 @@ with middle_panel:
                 type=["mp4", "mov", "avi", "flv", "mkv", "jpg", "jpeg", "png"],
                 accept_multiple_files=True,
             )
+
+        if params.video_source == "ai_generated":
+            with st.container(border=True):
+                st.write("🎨 AI Image Settings")
+
+                # Show paragraph count info — images = paragraphs
+                script_text = params.video_script or st.session_state.get("video_script", "")
+                if script_text:
+                    current_paragraphs = [p.strip() for p in script_text.split("\n\n") if p.strip()]
+                    st.info(f"**{len(current_paragraphs)} paragraphs** detected in script = **{len(current_paragraphs)} images** will be generated (1 per paragraph). Each clip duration matches its paragraph's audio.")
+                else:
+                    st.info(f"**{paragraph_number} images** will be generated (1 per paragraph). Generate a script first to see paragraph breakdown.")
+
+                if "ai_visual_style" not in st.session_state:
+                    st.session_state["ai_visual_style"] = config.app.get("ai_visual_style", "")
+
+                st.write("**Visual Style & References**")
+                if st.session_state["ai_visual_style"]:
+                    st.caption("Auto-filled from Research. You can edit it.")
+
+                ai_visual_style = st.text_area(
+                    "Visual Style & References",
+                    value=st.session_state["ai_visual_style"],
+                    height=120,
+                    placeholder="Click '🔍 Research Topic & Visual Style' in Script Settings to auto-fill, or describe manually.\n"
+                        "E.g.: sterile white corridors, fluorescent lighting, cold teal palette, 70s retro-corporate aesthetic",
+                    help="Describe the visual aesthetic, color palette, mood, and references. The AI will use this to guide all image prompts.",
+                    label_visibility="collapsed",
+                )
+                st.session_state["ai_visual_style"] = ai_visual_style
+                config.app["ai_visual_style"] = ai_visual_style
+
+                if st.button("Generate Image Prompts", key="gen_ai_prompts"):
+                    script = params.video_script or st.session_state.get("video_script", "")
+                    if not script:
+                        st.error("Please write or generate a video script first.")
+                    else:
+                        with st.spinner("Generating image prompts (1 per paragraph)..."):
+                            script_paragraphs = [p.strip() for p in script.split("\n\n") if p.strip()]
+                            if not script_paragraphs:
+                                script_paragraphs = [script]
+                            prompts = ai_images.generate_image_prompts(
+                                script_paragraphs, params.video_language or "en",
+                                visual_style=ai_visual_style,
+                                research_context=st.session_state.get("topic_research", ""),
+                            )
+                            st.session_state["ai_image_prompts"] = prompts
+
+                if st.session_state["ai_image_prompts"]:
+                    st.write(f"**{len(st.session_state['ai_image_prompts'])} prompts (1 per paragraph):**")
+                    updated_prompts = []
+                    for i, prompt in enumerate(st.session_state["ai_image_prompts"]):
+                        edited = st.text_area(
+                            f"Paragraph {i + 1} → Image Prompt",
+                            value=prompt,
+                            height=80,
+                            key=f"ai_prompt_{i}",
+                        )
+                        updated_prompts.append(edited)
+                    st.session_state["ai_image_prompts"] = updated_prompts
+
+                    if st.button("Clear Prompts", key="clear_ai_prompts"):
+                        st.session_state["ai_image_prompts"] = []
+                        st.rerun()
 
         selected_index = st.selectbox(
             tr("Video Concat Mode"),
@@ -870,9 +1082,13 @@ with middle_panel:
         )
         params.video_aspect = VideoAspect(video_aspect_ratios[selected_index][1])
 
-        params.video_clip_duration = st.selectbox(
-            tr("Clip Duration"), options=[2, 3, 4, 5, 6, 7, 8, 9, 10], index=1
-        )
+        if params.video_source != "ai_generated":
+            params.video_clip_duration = st.selectbox(
+                tr("Clip Duration"), options=[2, 3, 4, 5, 6, 7, 8, 9, 10], index=1
+            )
+        else:
+            st.caption("Clip duration is automatic (matches each paragraph's audio)")
+            params.video_clip_duration = 5  # default, not used for ai_generated
         params.video_count = st.selectbox(
             tr("Number of Videos Generated Simultaneously"),
             options=[1, 2, 3, 4, 5],
@@ -939,12 +1155,19 @@ with middle_panel:
                     if "V2" not in v:
                         filtered_voices.append(v)
 
-        friendly_names = {
-            v: v.replace("Female", tr("Female"))
-            .replace("Male", tr("Male"))
-            .replace("Neural", "")
-            for v in filtered_voices
-        }
+        def make_friendly_name(v):
+            if v.startswith("elevenlabs:"):
+                # Format: elevenlabs:voice_id:DisplayInfo → clean display name
+                parts = v.split(":", 2)
+                if len(parts) >= 3:
+                    return parts[2]
+            return (
+                v.replace("Female", tr("Female"))
+                .replace("Male", tr("Male"))
+                .replace("Neural", "")
+            )
+
+        friendly_names = {v: make_friendly_name(v) for v in filtered_voices}
 
         saved_voice_name = config.ui.get("voice_name", "")
         saved_voice_name_index = 0
@@ -1277,8 +1500,13 @@ if start_button:
         scroll_to_bottom()
         st.stop()
 
-    if params.video_source not in ["pexels", "pixabay", "local"]:
+    if params.video_source not in ["pexels", "pixabay", "local", "ai_generated"]:
         st.error(tr("Please Select a Valid Video Source"))
+        scroll_to_bottom()
+        st.stop()
+
+    if params.video_source == "ai_generated" and not config.app.get("gemini_api_key", ""):
+        st.error("Please enter your Google AI API Key in Basic Settings to use AI Generated images")
         scroll_to_bottom()
         st.stop()
 
@@ -1304,6 +1532,15 @@ if start_button:
                 if not params.video_materials:
                     params.video_materials = []
                 params.video_materials.append(m)
+
+    # Pass AI image settings if source is ai_generated
+    if params.video_source == "ai_generated":
+        ai_prompts = st.session_state.get("ai_image_prompts", [])
+        if ai_prompts:
+            params.ai_image_prompts = ai_prompts
+        # ai_image_count = paragraph_number (1 image per paragraph)
+        params.ai_image_count = config.app.get("paragraph_number", 8)
+        params.paragraph_number = params.ai_image_count
 
     log_container = st.empty()
     log_records = []
@@ -1338,6 +1575,18 @@ if start_button:
                 player_cols[i * 2 + 1].video(url)
     except Exception:
         pass
+
+    # Show AI image generation details
+    ai_details = result.get("ai_image_details", [])
+    if ai_details:
+        with st.expander(f"AI Generated Images ({len(ai_details)} clips)", expanded=False):
+            for i, detail in enumerate(ai_details):
+                st.markdown(f"**Clip {i + 1}**")
+                st.text(detail.get("prompt", ""))
+                img_path = detail.get("image_path", "")
+                if img_path and os.path.exists(img_path):
+                    st.image(img_path, width=300)
+                st.divider()
 
     open_task_folder(task_id)
     logger.info(tr("Video Generation Completed"))

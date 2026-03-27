@@ -295,14 +295,16 @@ def combine_videos(
             clip_duration = clip.duration
             clip_w, clip_h = clip.size
             close_clip(clip)
-            
+
             start_time = 0
 
             while start_time < clip_duration:
-                end_time = min(start_time + max_clip_duration, clip_duration)            
-                if clip_duration - start_time >= max_clip_duration:
-                    subclipped_items.append(SubClippedVideoClip(file_path= video_path, start_time=start_time, end_time=end_time, width=clip_w, height=clip_h))
-                start_time = end_time    
+                end_time = min(start_time + max_clip_duration, clip_duration)
+                remaining = clip_duration - start_time
+                # Include clip if it's at least 1 second (avoid dropping short clips)
+                if remaining >= 1.0:
+                    subclipped_items.append(SubClippedVideoClip(file_path=video_path, start_time=start_time, end_time=end_time, width=clip_w, height=clip_h))
+                start_time = end_time
                 if video_concat_mode.value == VideoConcatMode.sequential.value:
                     break
 

@@ -8,7 +8,7 @@ from loguru import logger
 from app.config import config
 from app.models import const
 from app.models.schema import VideoConcatMode, VideoParams
-from app.services import llm, material, subtitle, video, voice
+from app.services import ai_images, llm, material, subtitle, video, voice
 from app.services import state as sm
 from app.utils import utils
 
@@ -17,10 +17,14 @@ def generate_script(task_id, params):
     logger.info("\n\n## generating video script")
     video_script = params.video_script.strip()
     if not video_script:
+        # For AI-generated images, paragraph_number controls the number of scenes/images
+        paragraph_number = params.paragraph_number or 1
+        if params.video_source == "ai_generated" and params.ai_image_count:
+            paragraph_number = params.ai_image_count
         video_script = llm.generate_script(
             video_subject=params.video_subject,
             language=params.video_language,
-            paragraph_number=params.paragraph_number,
+            paragraph_number=paragraph_number,
         )
     else:
         logger.debug(f"video script: \n{video_script}")
@@ -168,6 +172,58 @@ def get_video_materials(task_id, params, video_terms, audio_duration):
             )
             return None
         return [material_info.url for material_info in materials]
+    elif params.video_source == "ai_generated":
+        logger.info("\n\n## generating AI images (1 per paragraph) and converting to video clips")
+        api_key = config.app.get("gemini_api_key", "")
+        if not api_key:
+            sm.state.update_task(task_id, state=const.TASK_STATE_FAILED)
+            logger.error("Google AI API key is not set. Please configure it in Basic Settings.")
+            return None
+
+        video_script = params.video_script or ""
+        aspect = params.video_aspect
+        # Determine resolution from aspect ratio
+        if aspect == "16:9":
+            resolution = (1920, 1080)
+        elif aspect == "1:1":
+            resolution = (1080, 1080)
+        else:
+            resolution = (1080, 1920)
+
+        # Split script into paragraphs (separated by blank lines)
+        paragraphs = [p.strip() for p in video_script.split("\n\n") if p.strip()]
+        if not paragraphs:
+            paragraphs = [video_script]
+
+        logger.info(f"Script has {len(paragraphs)} paragraphs")
+
+        # Calculate per-paragraph clip durations proportional to word count
+        clip_durations = []
+        if audio_duration > 0:
+            total_words = sum(len(p.split()) for p in paragraphs)
+            for p in paragraphs:
+                word_count = len(p.split())
+                dur = max(2.0, (word_count / total_words) * audio_duration) if total_words > 0 else audio_duration / len(paragraphs)
+                clip_durations.append(round(dur, 2))
+            # Adjust last clip to match audio_duration exactly
+            diff = audio_duration - sum(clip_durations)
+            clip_durations[-1] = round(clip_durations[-1] + diff, 2)
+            logger.info(f"Per-paragraph clip durations: {clip_durations} (total={sum(clip_durations):.1f}s)")
+
+        ai_materials = ai_images.generate_ai_video_materials(
+            paragraphs=paragraphs,
+            api_key=api_key,
+            clip_durations=clip_durations,
+            aspect_ratio=aspect,
+            resolution=resolution,
+            predefined_prompts=params.ai_image_prompts,
+            audio_duration=audio_duration,
+        )
+        if not ai_materials:
+            sm.state.update_task(task_id, state=const.TASK_STATE_FAILED)
+            logger.error("failed to generate AI images. Check your Google AI API key and try again.")
+            return None
+        return [m["url"] for m in ai_materials], ai_materials
     else:
         logger.info(f"\n\n## downloading videos from {params.video_source}")
         downloaded_videos = material.download_videos(
@@ -268,9 +324,9 @@ def start(task_id, params: VideoParams, stop_at: str = "video"):
         )
         return {"script": video_script}
 
-    # 2. Generate terms
+    # 2. Generate terms (not needed for local files or AI-generated images)
     video_terms = ""
-    if params.video_source != "local":
+    if params.video_source not in ("local", "ai_generated"):
         video_terms = generate_terms(task_id, params, video_script)
         if not video_terms:
             sm.state.update_task(task_id, state=const.TASK_STATE_FAILED)
@@ -322,9 +378,14 @@ def start(task_id, params: VideoParams, stop_at: str = "video"):
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=40)
 
     # 5. Get video materials
-    downloaded_videos = get_video_materials(
+    ai_image_details = []
+    video_materials_result = get_video_materials(
         task_id, params, video_terms, audio_duration
     )
+    if isinstance(video_materials_result, tuple):
+        downloaded_videos, ai_image_details = video_materials_result
+    else:
+        downloaded_videos = video_materials_result
     if not downloaded_videos:
         sm.state.update_task(task_id, state=const.TASK_STATE_FAILED)
         return
@@ -362,6 +423,7 @@ def start(task_id, params: VideoParams, stop_at: str = "video"):
         "audio_duration": audio_duration,
         "subtitle_path": subtitle_path,
         "materials": downloaded_videos,
+        "ai_image_details": ai_image_details,
     }
     sm.state.update_task(
         task_id, state=const.TASK_STATE_COMPLETE, progress=100, **kwargs

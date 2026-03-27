@@ -113,6 +113,10 @@ class VideoParams(BaseModel):
     max_chars_per_line: Optional[int] = 40
     max_lines_per_subtitle: Optional[int] = 2
     
+    # AI image generation settings
+    ai_image_prompts: Optional[List[str]] = None
+    ai_image_count: Optional[int] = None
+
     # Semantic video settings
     segmentation_method: Optional[str] = "sentences"
     min_segment_length: Optional[int] = 25

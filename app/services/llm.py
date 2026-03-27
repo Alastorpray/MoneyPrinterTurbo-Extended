@@ -298,27 +298,50 @@ def _generate_response(prompt: str) -> str:
 
 
 def generate_script(
-    video_subject: str, language: str = "", paragraph_number: int = 1
+    video_subject: str, language: str = "", paragraph_number: int = 1,
+    target_duration: int = 60, research_context: str = ""
 ) -> str:
+    # Calculate approximate word count from target duration
+    # Spanish is spoken slower (~1.5 words/sec) than English (~2.5 words/sec) in TTS
+    lang_lower = (language or "").lower()
+    if lang_lower.startswith("es"):
+        words_per_sec = 1.5
+    else:
+        words_per_sec = 2.5
+    target_words = int(target_duration * words_per_sec)
+
+    research_section = ""
+    if research_context:
+        research_section = f"""
+## Research Context (use this factual information to write an accurate and informed script):
+{research_context}
+"""
+
     prompt = f"""
 # Role: Video Script Generator
 
 ## Goals:
-Generate a script for a video, depending on the subject of the video.
-
+Generate a narration script for a video of approximately {target_duration} seconds ({target_words} words), depending on the subject of the video.
+The script MUST have EXACTLY {paragraph_number} paragraphs, separated by blank lines (double newline).
+Each paragraph represents one visual scene in the video — so each paragraph should describe or narrate one distinct moment, scene, or idea.
+{research_section}
 ## Constrains:
-1. the script is to be returned as a string with the specified number of paragraphs.
-2. do not under any circumstance reference this prompt in your response.
-3. get straight to the point, don't start with unnecessary things like, "welcome to this video".
-4. you must not include any type of markdown or formatting in the script, never use a title.
-5. only return the raw content of the script.
-6. do not include "voiceover", "narrator" or similar indicators of what should be spoken at the beginning of each paragraph or line.
-7. you must not mention the prompt, or anything about the script itself. also, never talk about the amount of paragraphs or lines. just write the script.
-8. respond in the same language as the video subject.
+1. the script MUST be approximately {target_words} words long (target duration: {target_duration} seconds).
+2. the script MUST contain EXACTLY {paragraph_number} paragraphs separated by a blank line between each.
+3. distribute words roughly evenly across all {paragraph_number} paragraphs.
+4. do not under any circumstance reference this prompt in your response.
+5. get straight to the point, don't start with unnecessary things like, "welcome to this video".
+6. you must not include any type of markdown or formatting in the script, never use a title.
+7. only return the raw content of the script.
+8. do not include "voiceover", "narrator" or similar indicators of what should be spoken at the beginning of each paragraph or line.
+9. you must not mention the prompt, or anything about the script itself. also, never talk about the amount of paragraphs or lines. just write the script.
+10. respond in the same language as the video subject.
+11. if research context is provided, use those facts to make the script accurate and detailed.
 
 # Initialization:
 - video subject: {video_subject}
-- number of paragraphs: {paragraph_number}
+- EXACTLY {paragraph_number} paragraphs (separated by blank lines)
+- target duration: {target_duration} seconds (~{target_words} words)
 """.strip()
     if language:
         prompt += f"\n- language: {language}"
@@ -336,13 +359,31 @@ Generate a script for a video, depending on the subject of the video.
         response = re.sub(r"\[.*\]", "", response)
         response = re.sub(r"\(.*\)", "", response)
 
-        # Split the script into paragraphs
-        paragraphs = response.split("\n\n")
+        # Split the script into paragraphs and filter empty ones
+        paragraphs = [p.strip() for p in response.split("\n\n") if p.strip()]
 
-        # Select the specified number of paragraphs
-        # selected_paragraphs = paragraphs[:paragraph_number]
+        # Enforce exactly paragraph_number paragraphs
+        if len(paragraphs) > paragraph_number:
+            # Merge excess paragraphs into the last one
+            merged = paragraphs[:paragraph_number - 1]
+            merged.append(" ".join(paragraphs[paragraph_number - 1:]))
+            paragraphs = merged
+        elif len(paragraphs) < paragraph_number and len(paragraphs) > 0:
+            # Split the longest paragraph to reach the target count
+            while len(paragraphs) < paragraph_number:
+                # Find longest paragraph
+                longest_idx = max(range(len(paragraphs)), key=lambda i: len(paragraphs[i]))
+                text = paragraphs[longest_idx]
+                sentences = re.split(r'(?<=[.!?。！？])\s+', text)
+                if len(sentences) >= 2:
+                    mid = len(sentences) // 2
+                    part1 = " ".join(sentences[:mid])
+                    part2 = " ".join(sentences[mid:])
+                    paragraphs[longest_idx] = part1
+                    paragraphs.insert(longest_idx + 1, part2)
+                else:
+                    break  # Can't split further
 
-        # Join the selected paragraphs into a single string
         return "\n\n".join(paragraphs)
 
     for i in range(_max_retries):

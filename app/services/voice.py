@@ -109,8 +109,11 @@ def get_chatterbox_voices() -> list[str]:
 
 
 def get_elevenlabs_voices() -> list[str]:
-    """Get available ElevenLabs voices"""
-    voices_with_gender = [
+    """Get available ElevenLabs voices, including user's custom/cloned voices from the API."""
+    import requests
+
+    # Default built-in voices as fallback
+    builtin_voices = [
         ("21m00Tcm4TlvDq8ikWAM", "Rachel", "Female"),
         ("AZnzlk1XvdvUeBnXmlld", "Domi", "Female"),
         ("EXAVITQu4vr4xnSDxMaL", "Bella", "Female"),
@@ -134,9 +137,46 @@ def get_elevenlabs_voices() -> list[str]:
         ("EkK5I93UQHFLzoSfMRqy", "Matilda", "Female"),
     ]
 
+    api_key = config.elevenlabs.get("api_key", "")
+    if not api_key:
+        return [
+            f"elevenlabs:{vid}:{name}-{gender}"
+            for vid, name, gender in builtin_voices
+        ]
+
+    # Fetch all voices from ElevenLabs API (includes custom/cloned voices)
+    try:
+        resp = requests.get(
+            "https://api.elevenlabs.io/v1/voices",
+            headers={"xi-api-key": api_key},
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            api_voices = resp.json().get("voices", [])
+            voices = []
+            custom_voices = []
+            for v in api_voices:
+                voice_id = v.get("voice_id", "")
+                name = v.get("name", "Unknown")
+                category = v.get("category", "")
+                labels = v.get("labels", {})
+                gender = labels.get("gender", "Unknown").capitalize()
+                # Mark custom/cloned voices
+                if category in ("cloned", "professional", "generated"):
+                    prefix = f"⭐ {name}"
+                    custom_voices.append(f"elevenlabs:{voice_id}:{prefix}-{gender}")
+                else:
+                    voices.append(f"elevenlabs:{voice_id}:{name}-{gender}")
+            # Custom voices first, then library voices
+            return custom_voices + voices
+        else:
+            logger.warning(f"ElevenLabs API returned {resp.status_code}, using built-in voices")
+    except Exception as e:
+        logger.warning(f"Failed to fetch ElevenLabs voices: {e}, using built-in list")
+
     return [
-        f"elevenlabs:{voice_id}:{name}-{gender}"
-        for voice_id, name, gender in voices_with_gender
+        f"elevenlabs:{vid}:{name}-{gender}"
+        for vid, name, gender in builtin_voices
     ]
 
 
@@ -1299,12 +1339,12 @@ def elevenlabs_tts(
         logger.error("ElevenLabs API key is not set. Get one at https://elevenlabs.io")
         return None
 
-    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
+    url_with_timestamps = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/with-timestamps"
+    url_basic = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
 
     headers = {
         "xi-api-key": api_key,
         "Content-Type": "application/json",
-        "Accept": "audio/mpeg",
     }
 
     payload = {
@@ -1322,64 +1362,125 @@ def elevenlabs_tts(
         try:
             logger.info(f"start elevenlabs tts, voice_id: {voice_id}, try: {i + 1}")
 
-            response = requests.post(url, json=payload, headers=headers)
+            # Try with-timestamps endpoint first for accurate subtitle timing
+            response = requests.post(url_with_timestamps, json=payload, headers=headers)
 
             if response.status_code == 200:
-                with open(voice_file, "wb") as f:
-                    f.write(response.content)
+                data = response.json()
+                audio_b64 = data.get("audio_base64", "")
+                char_starts = data.get("character_start_times_seconds", [])
+                char_ends = data.get("character_end_times_seconds", [])
+                chars = data.get("characters", [])
+
+                if audio_b64:
+                    import base64
+                    audio_bytes = base64.b64decode(audio_b64)
+                    with open(voice_file, "wb") as f:
+                        f.write(audio_bytes)
+                else:
+                    logger.warning("No audio in timestamps response, falling back")
+                    response = requests.post(url_basic, json={**payload, "Accept": "audio/mpeg"}, headers=headers)
+                    if response.status_code == 200:
+                        with open(voice_file, "wb") as f:
+                            f.write(response.content)
 
                 sub_maker = ensure_submaker_compatibility(SubMaker())
 
-                try:
-                    from moviepy import AudioFileClip
-
-                    audio_clip = AudioFileClip(voice_file)
-                    audio_duration = audio_clip.duration
-                    audio_clip.close()
-
-                    audio_duration_100ns = int(audio_duration * 10000000)
-
+                # Build subtitles from real character timestamps
+                if char_starts and char_ends and chars:
                     sentences = utils.split_string_by_punctuations(text)
+                    char_pos = 0
 
-                    if sentences:
-                        total_chars = sum(len(s) for s in sentences)
-                        char_duration = (
-                            audio_duration_100ns / total_chars if total_chars > 0 else 0
-                        )
+                    for sentence in sentences:
+                        if not sentence.strip():
+                            continue
 
-                        current_offset = 0
-                        for sentence in sentences:
-                            if not sentence.strip():
-                                continue
+                        # Find the start of this sentence in the character list
+                        sent_start_idx = None
+                        sent_end_idx = None
+                        remaining = sentence
+                        for ci in range(char_pos, len(chars)):
+                            c = chars[ci]
+                            if c in remaining:
+                                if sent_start_idx is None:
+                                    sent_start_idx = ci
+                                sent_end_idx = ci
+                                remaining = remaining[remaining.index(c) + len(c):]
+                                if not remaining.strip():
+                                    break
 
-                            sentence_chars = len(sentence)
-                            sentence_duration = int(sentence_chars * char_duration)
-
+                        if sent_start_idx is not None and sent_end_idx is not None:
+                            start_sec = char_starts[sent_start_idx]
+                            end_sec = char_ends[sent_end_idx]
+                            # Convert to 100ns units for compatibility with edge_tts SubMaker
                             sub_maker.subs.append(sentence)
                             sub_maker.offset.append(
-                                (current_offset, current_offset + sentence_duration)
+                                (int(start_sec * 10000000), int(end_sec * 10000000))
                             )
+                            char_pos = sent_end_idx + 1
+                        else:
+                            logger.warning(f"Could not align sentence: {sentence[:40]}...")
 
-                            current_offset += sentence_duration
-                    else:
-                        sub_maker.subs = [text]
-                        sub_maker.offset = [(0, audio_duration_100ns)]
-
-                except Exception as e:
-                    logger.warning(f"Failed to create accurate subtitles: {str(e)}")
-                    sub_maker.subs = [text]
-                    sub_maker.offset = [(0, 100000000)]
+                    logger.info(f"Built {len(sub_maker.subs)} subtitles from ElevenLabs timestamps")
+                else:
+                    # Fallback: estimate from audio duration
+                    logger.warning("No timestamp data, falling back to estimation")
+                    _elevenlabs_estimate_subtitles(sub_maker, text, voice_file)
 
                 logger.success(f"elevenlabs tts succeeded: {voice_file}")
                 return sub_maker
             else:
-                logger.error(
-                    f"elevenlabs tts failed with status {response.status_code}: {response.text}"
-                )
+                # Fallback to basic endpoint without timestamps
+                logger.warning(f"Timestamps endpoint failed ({response.status_code}), trying basic")
+                headers["Accept"] = "audio/mpeg"
+                response = requests.post(url_basic, json=payload, headers=headers)
+                if response.status_code == 200:
+                    with open(voice_file, "wb") as f:
+                        f.write(response.content)
+
+                    sub_maker = ensure_submaker_compatibility(SubMaker())
+                    _elevenlabs_estimate_subtitles(sub_maker, text, voice_file)
+                    logger.success(f"elevenlabs tts succeeded (basic): {voice_file}")
+                    return sub_maker
+                else:
+                    logger.error(
+                        f"elevenlabs tts failed with status {response.status_code}: {response.text}"
+                    )
         except Exception as e:
             logger.error(f"elevenlabs tts failed: {str(e)}")
 
     return None
+
+
+def _elevenlabs_estimate_subtitles(sub_maker, text, voice_file):
+    """Fallback: estimate subtitle timing from audio duration and character count."""
+    try:
+        from moviepy import AudioFileClip
+        audio_clip = AudioFileClip(voice_file)
+        audio_duration = audio_clip.duration
+        audio_clip.close()
+
+        audio_duration_100ns = int(audio_duration * 10000000)
+        sentences = utils.split_string_by_punctuations(text)
+
+        if sentences:
+            total_chars = sum(len(s) for s in sentences)
+            char_duration = audio_duration_100ns / total_chars if total_chars > 0 else 0
+            current_offset = 0
+            for sentence in sentences:
+                if not sentence.strip():
+                    continue
+                sentence_duration = int(len(sentence) * char_duration)
+                sub_maker.subs.append(sentence)
+                sub_maker.offset.append((current_offset, current_offset + sentence_duration))
+                current_offset += sentence_duration
+        else:
+            sub_maker.subs = [text]
+            sub_maker.offset = [(0, audio_duration_100ns)]
+    except Exception as e:
+        logger.warning(f"Failed to estimate subtitles: {e}")
+        sub_maker.subs = [text]
+        sub_maker.offset = [(0, 100000000)]
 
 
 def siliconflow_tts(
