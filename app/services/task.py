@@ -76,6 +76,32 @@ def save_script_data(task_id, video_script, video_terms, params):
 
 def generate_audio(task_id, params, video_script):
     logger.info("\n\n## generating audio")
+
+    # For AI-generated images, use per-paragraph audio for exact timing
+    if params.video_source == "ai_generated":
+        paragraphs = [p.strip() for p in video_script.split("\n\n") if p.strip()]
+        if len(paragraphs) > 1:
+            logger.info(f"Using per-paragraph audio generation ({len(paragraphs)} paragraphs)")
+            result = voice.tts_per_paragraph(
+                paragraphs=paragraphs,
+                voice_name=params.voice_name,
+                voice_rate=params.voice_rate,
+                output_dir=utils.task_dir(task_id),
+                voice_volume=params.voice_volume,
+            )
+            if result is None:
+                sm.state.update_task(task_id, state=const.TASK_STATE_FAILED)
+                logger.error("failed to generate per-paragraph audio")
+                return None, None, None, None
+
+            audio_file = result["audio_file"]
+            audio_duration = math.ceil(result["total_duration"])
+            sub_maker = result["sub_maker"]
+            paragraph_durations = result["paragraph_durations"]
+            logger.success(f"Per-paragraph audio: {paragraph_durations} (total: {audio_duration}s)")
+            return audio_file, audio_duration, sub_maker, paragraph_durations
+
+    # Standard single-file audio generation
     audio_file = path.join(utils.task_dir(task_id), "audio.mp3")
     sub_maker = voice.tts(
         text=video_script,
@@ -91,7 +117,7 @@ def generate_audio(task_id, params, video_script):
 2. check if the network is available. If you are in China, it is recommended to use a VPN and enable the global traffic mode.
         """.strip()
         )
-        return None, None, None
+        return None, None, None, None
 
     # Get the actual audio file path (might be .wav if MP3 conversion failed)
     actual_audio_file = getattr(sub_maker, '_actual_audio_file', audio_file)
@@ -100,7 +126,7 @@ def generate_audio(task_id, params, video_script):
         audio_file = actual_audio_file
 
     audio_duration = math.ceil(voice.get_audio_duration(sub_maker))
-    return audio_file, audio_duration, sub_maker
+    return audio_file, audio_duration, sub_maker, None
 
 
 def generate_subtitle(task_id, params, video_script, sub_maker, audio_file):
@@ -159,7 +185,7 @@ def generate_subtitle(task_id, params, video_script, sub_maker, audio_file):
     return subtitle_path
 
 
-def get_video_materials(task_id, params, video_terms, audio_duration):
+def get_video_materials(task_id, params, video_terms, audio_duration, paragraph_durations=None):
     if params.video_source == "local":
         logger.info("\n\n## preprocess local materials")
         materials = video.preprocess_video(
@@ -197,9 +223,12 @@ def get_video_materials(task_id, params, video_terms, audio_duration):
 
         logger.info(f"Script has {len(paragraphs)} paragraphs")
 
-        # Calculate per-paragraph clip durations proportional to word count
+        # Use exact per-paragraph durations from TTS if available, otherwise estimate
         clip_durations = []
-        if audio_duration > 0:
+        if paragraph_durations and len(paragraph_durations) == len(paragraphs):
+            clip_durations = paragraph_durations
+            logger.info(f"Using EXACT per-paragraph audio durations: {clip_durations}")
+        elif audio_duration > 0:
             total_words = sum(len(p.split()) for p in paragraphs)
             for p in paragraphs:
                 word_count = len(p.split())
@@ -208,7 +237,7 @@ def get_video_materials(task_id, params, video_terms, audio_duration):
             # Adjust last clip to match audio_duration exactly
             diff = audio_duration - sum(clip_durations)
             clip_durations[-1] = round(clip_durations[-1] + diff, 2)
-            logger.info(f"Per-paragraph clip durations: {clip_durations} (total={sum(clip_durations):.1f}s)")
+            logger.info(f"Estimated per-paragraph clip durations: {clip_durations} (total={sum(clip_durations):.1f}s)")
 
         ai_materials = ai_images.generate_ai_video_materials(
             paragraphs=paragraphs,
@@ -342,8 +371,8 @@ def start(task_id, params: VideoParams, stop_at: str = "video"):
 
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=20)
 
-    # 3. Generate audio
-    audio_file, audio_duration, sub_maker = generate_audio(
+    # 3. Generate audio (returns paragraph_durations for AI-generated source)
+    audio_file, audio_duration, sub_maker, paragraph_durations = generate_audio(
         task_id, params, video_script
     )
     if not audio_file:
@@ -380,7 +409,7 @@ def start(task_id, params: VideoParams, stop_at: str = "video"):
     # 5. Get video materials
     ai_image_details = []
     video_materials_result = get_video_materials(
-        task_id, params, video_terms, audio_duration
+        task_id, params, video_terms, audio_duration, paragraph_durations
     )
     if isinstance(video_materials_result, tuple):
         downloaded_videos, ai_image_details = video_materials_result

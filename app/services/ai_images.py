@@ -16,11 +16,34 @@ from app.services.llm import _generate_response
 from app.utils import utils
 
 
-def research_topic(subject: str, language: str = "", api_key: str = "") -> dict:
+def _get_research_cache_path(subject: str, language: str = "") -> str:
+    """Get cache file path for a research topic."""
+    import hashlib
+    cache_key = f"{subject.lower().strip()}_{language.lower().strip()}"
+    cache_hash = hashlib.md5(cache_key.encode()).hexdigest()[:12]
+    cache_dir = utils.storage_dir("research", create=True)
+    return os.path.join(cache_dir, f"{cache_hash}.json")
+
+
+def research_topic(subject: str, language: str = "", api_key: str = "", use_cache: bool = True) -> dict:
     """
     Use Gemini with Google Search grounding to research a topic AND its visual style in one call.
     Returns a dict with 'topic_research' and 'visual_style' keys.
+    Results are cached to avoid repeated API calls for the same topic.
     """
+    # Check cache first
+    import json as _json
+    cache_path = _get_research_cache_path(subject, language)
+    if use_cache and os.path.exists(cache_path):
+        try:
+            with open(cache_path, "r", encoding="utf-8") as f:
+                cached = _json.load(f)
+            if cached.get("topic_research"):
+                logger.info(f"Using cached research for: {subject}")
+                return cached
+        except Exception:
+            pass
+
     if not api_key:
         api_key = config.app.get("gemini_api_key", "")
     if not api_key:
@@ -93,10 +116,22 @@ Do NOT include character names, logos, or trademarked elements — describe the 
         topic_research = topic_research.replace("===TOPIC RESEARCH===", "").strip()
 
         logger.success(f"Research complete for: {subject} (topic: {len(topic_research)} chars, style: {len(visual_style)} chars)")
-        return {
+        result_data = {
             "topic_research": topic_research,
             "visual_style": visual_style,
+            "subject": subject,
+            "language": language,
         }
+
+        # Save to cache
+        try:
+            with open(cache_path, "w", encoding="utf-8") as f:
+                _json.dump(result_data, f, ensure_ascii=False, indent=2)
+            logger.info(f"Research cached: {cache_path}")
+        except Exception as ce:
+            logger.warning(f"Failed to cache research: {ce}")
+
+        return result_data
     except Exception as e:
         logger.error(f"Research failed: {e}")
         return {}
@@ -566,3 +601,73 @@ def generate_ai_video_materials(
 
     logger.success(f"AI generation complete: {len(materials)}/{num_clips} clips created")
     return materials
+
+
+def regenerate_single_image(
+    prompt: str,
+    api_key: str = "",
+    aspect_ratio: str = "9:16",
+    old_image_path: str = None,
+) -> Optional[str]:
+    """
+    Regenerate a single image with a given prompt.
+    If old_image_path is provided, replaces it.
+    Returns the new image path.
+    """
+    output_dir = utils.storage_dir("ai_images", create=True)
+    img_path = old_image_path or os.path.join(output_dir, f"ai-img-regen-{int(time.time())}.png")
+
+    result = generate_image(prompt, api_key, aspect_ratio, img_path)
+    if result:
+        logger.success(f"Regenerated image: {result}")
+    else:
+        logger.error("Failed to regenerate image")
+    return result
+
+
+def generate_storyboard(
+    paragraphs: List[str],
+    api_key: str = "",
+    aspect_ratio: str = "9:16",
+    predefined_prompts: List[str] = None,
+    visual_style: str = "",
+    research_context: str = "",
+) -> List[dict]:
+    """
+    Generate only the images (no video clips) for storyboard preview.
+    Returns list of dicts with 'prompt', 'image_path', 'paragraph' per paragraph.
+    """
+    num = len(paragraphs)
+    logger.info(f"Generating storyboard: {num} images for preview")
+
+    if predefined_prompts and len(predefined_prompts) >= num:
+        prompts = predefined_prompts[:num]
+    else:
+        prompts = generate_image_prompts(
+            paragraphs, visual_style=visual_style, research_context=research_context
+        )
+
+    while len(prompts) < num:
+        prompts.append(prompts[-1] if prompts else "A cinematic establishing shot")
+
+    storyboard = []
+    output_dir = utils.storage_dir("ai_images", create=True)
+
+    for i, (para, prompt) in enumerate(zip(paragraphs, prompts)):
+        logger.info(f"Storyboard image {i + 1}/{num}: {prompt[:60]}...")
+        img_path = os.path.join(output_dir, f"storyboard-{int(time.time())}-{i}.png")
+        result = generate_image(prompt, api_key, aspect_ratio, img_path)
+
+        storyboard.append({
+            "index": i,
+            "paragraph": para,
+            "prompt": prompt,
+            "image_path": result,  # None if failed
+        })
+
+        if i < num - 1:
+            time.sleep(2)
+
+    success_count = sum(1 for s in storyboard if s["image_path"])
+    logger.success(f"Storyboard complete: {success_count}/{num} images generated")
+    return storyboard

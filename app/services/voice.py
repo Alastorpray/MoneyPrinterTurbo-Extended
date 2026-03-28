@@ -2,7 +2,7 @@ import asyncio
 import os
 import re
 from datetime import datetime
-from typing import Union
+from typing import List, Union
 from xml.sax.saxutils import unescape
 
 # Suppress warnings and handle CUDA library conflicts
@@ -2537,6 +2537,133 @@ def get_audio_duration(sub_maker: SubMaker):
     if not sub_maker.offset:
         return 0.0
     return sub_maker.offset[-1][1] / 10000000
+
+
+def get_audio_duration_from_file(audio_file: str) -> float:
+    """Get audio duration in seconds from a file using moviepy."""
+    try:
+        from moviepy import AudioFileClip
+        clip = AudioFileClip(audio_file)
+        duration = clip.duration
+        clip.close()
+        return duration
+    except Exception as e:
+        logger.warning(f"Failed to get audio duration from file: {e}")
+        return 0.0
+
+
+def tts_per_paragraph(
+    paragraphs: List[str],
+    voice_name: str,
+    voice_rate: float,
+    output_dir: str,
+    voice_volume: float = 1.0,
+) -> dict:
+    """
+    Generate TTS audio for each paragraph independently.
+    Returns dict with:
+      - 'audio_file': path to concatenated final audio
+      - 'paragraph_audio_files': list of per-paragraph audio paths
+      - 'paragraph_durations': list of exact durations (seconds) per paragraph
+      - 'total_duration': total audio duration
+      - 'sub_maker': SubMaker with combined subtitle data
+    """
+    import os
+
+    paragraph_audio_files = []
+    paragraph_durations = []
+    paragraph_sub_makers = []
+
+    for i, paragraph in enumerate(paragraphs):
+        paragraph_text = paragraph.strip()
+        if not paragraph_text:
+            continue
+
+        para_audio_file = os.path.join(output_dir, f"paragraph-{i + 1}.mp3")
+        logger.info(f"Generating audio for paragraph {i + 1}/{len(paragraphs)} ({len(paragraph_text.split())} words)")
+
+        sub_maker = tts(
+            text=paragraph_text,
+            voice_name=parse_voice_name(voice_name),
+            voice_rate=voice_rate,
+            voice_file=para_audio_file,
+            voice_volume=voice_volume,
+        )
+
+        if sub_maker is None:
+            logger.error(f"Failed to generate audio for paragraph {i + 1}")
+            return None
+
+        # Get actual audio file (might be .wav if MP3 conversion failed)
+        actual_audio_file = getattr(sub_maker, '_actual_audio_file', para_audio_file)
+        if actual_audio_file != para_audio_file:
+            para_audio_file = actual_audio_file
+
+        # Get exact duration from the audio file
+        duration = get_audio_duration(sub_maker)
+        if duration <= 0:
+            duration = get_audio_duration_from_file(para_audio_file)
+
+        paragraph_audio_files.append(para_audio_file)
+        paragraph_durations.append(round(duration, 2))
+        paragraph_sub_makers.append(sub_maker)
+
+        logger.info(f"  Paragraph {i + 1}: {duration:.2f}s")
+
+    if not paragraph_audio_files:
+        return None
+
+    # Concatenate all paragraph audios into one final file
+    final_audio_file = os.path.join(output_dir, "audio.mp3")
+    try:
+        from moviepy import AudioFileClip, concatenate_audioclips
+        clips = [AudioFileClip(f) for f in paragraph_audio_files]
+        final_clip = concatenate_audioclips(clips)
+        final_clip.write_audiofile(final_audio_file, logger=None)
+        for clip in clips:
+            clip.close()
+        final_clip.close()
+    except Exception as e:
+        logger.error(f"Failed to concatenate paragraph audios: {e}")
+        # Fallback: use ffmpeg
+        try:
+            import subprocess
+            list_file = os.path.join(output_dir, "audio_list.txt")
+            with open(list_file, "w") as f:
+                for af in paragraph_audio_files:
+                    f.write(f"file '{af}'\n")
+            subprocess.run(
+                ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", list_file, "-c", "copy", final_audio_file],
+                capture_output=True, check=True,
+            )
+        except Exception as e2:
+            logger.error(f"FFmpeg concat also failed: {e2}")
+            return None
+
+    # Build combined SubMaker with time offsets
+    combined_sub_maker = SubMaker()
+    time_offset = 0  # in 100-nanosecond units (edge_tts format)
+    for i, sm in enumerate(paragraph_sub_makers):
+        if sm and sm.subs:
+            for j, sub_text in enumerate(sm.subs):
+                combined_sub_maker.subs.append(sub_text)
+                if j < len(sm.offset):
+                    start, end = sm.offset[j]
+                    combined_sub_maker.offset.append((start + time_offset, end + time_offset))
+        # Add offset for next paragraph (duration in 100-nanosecond units)
+        time_offset += int(paragraph_durations[i] * 10000000)
+
+    total_duration = sum(paragraph_durations)
+    logger.success(f"Per-paragraph audio complete: {len(paragraph_durations)} paragraphs, total {total_duration:.1f}s")
+    logger.info(f"  Durations: {paragraph_durations}")
+
+    return {
+        "audio_file": final_audio_file,
+        "paragraph_audio_files": paragraph_audio_files,
+        "paragraph_durations": paragraph_durations,
+        "total_duration": total_duration,
+        "sub_maker": combined_sub_maker,
+    }
 
 
 # Note: This module contains TTS functions for Azure TTS V1/V2, SiliconFlow TTS, and Chatterbox TTS

@@ -70,6 +70,8 @@ if "ai_image_prompts" not in st.session_state:
     st.session_state["ai_image_prompts"] = []
 if "topic_research" not in st.session_state:
     st.session_state["topic_research"] = ""
+if "storyboard" not in st.session_state:
+    st.session_state["storyboard"] = []
 
 # 加载语言文件
 locales = utils.load_locales(i18n_dir)
@@ -619,9 +621,17 @@ with left_panel:
         )
         params.video_language = video_languages[selected_index][1]
 
-        # Spanish TTS is slower (~1.5 words/sec) vs English (~2.5 words/sec)
-        is_spanish = params.video_language.lower().startswith("es") if params.video_language else False
-        wps = 1.5 if is_spanish else 2.5
+        # Words-per-second rates calibrated for TTS output by language
+        _wps_map = {
+            "es": 1.5, "fr": 1.8, "pt": 1.7, "de": 1.6, "it": 1.7,
+            "ja": 1.2, "ko": 1.3, "zh": 1.2, "vi": 1.5, "th": 1.4,
+        }
+        wps = 2.5  # Default (English)
+        if params.video_language:
+            for prefix, rate in _wps_map.items():
+                if params.video_language.lower().startswith(prefix):
+                    wps = rate
+                    break
         video_duration_options = [
             (f"~30 seconds (~{int(30 * wps)} words)", 30),
             (f"~1 minute (~{int(60 * wps)} words)", 60),
@@ -820,9 +830,68 @@ with middle_panel:
                         updated_prompts.append(edited)
                     st.session_state["ai_image_prompts"] = updated_prompts
 
-                    if st.button("Clear Prompts", key="clear_ai_prompts"):
-                        st.session_state["ai_image_prompts"] = []
-                        st.rerun()
+                    btn_cols = st.columns(2)
+                    with btn_cols[0]:
+                        if st.button("🖼️ Preview Storyboard", key="gen_storyboard"):
+                            script = params.video_script or st.session_state.get("video_script", "")
+                            if script:
+                                with st.spinner("Generating storyboard images..."):
+                                    script_paragraphs = [p.strip() for p in script.split("\n\n") if p.strip()]
+                                    if not script_paragraphs:
+                                        script_paragraphs = [script]
+                                    storyboard = ai_images.generate_storyboard(
+                                        paragraphs=script_paragraphs,
+                                        api_key=config.app.get("gemini_api_key", ""),
+                                        aspect_ratio=params.video_aspect if hasattr(params, 'video_aspect') else "9:16",
+                                        predefined_prompts=st.session_state["ai_image_prompts"],
+                                        visual_style=st.session_state.get("ai_visual_style", ""),
+                                        research_context=st.session_state.get("topic_research", ""),
+                                    )
+                                    st.session_state["storyboard"] = storyboard
+                    with btn_cols[1]:
+                        if st.button("Clear Prompts", key="clear_ai_prompts"):
+                            st.session_state["ai_image_prompts"] = []
+                            st.session_state["storyboard"] = []
+                            st.rerun()
+
+                # Show storyboard preview
+                if st.session_state.get("storyboard"):
+                    st.write("---")
+                    st.write("**🎬 Storyboard Preview**")
+                    for item in st.session_state["storyboard"]:
+                        idx = item["index"]
+                        col_img, col_info = st.columns([1, 2])
+                        with col_img:
+                            if item["image_path"] and os.path.exists(item["image_path"]):
+                                st.image(item["image_path"], width=200)
+                                if st.button(f"🔄 Regenerate", key=f"regen_img_{idx}"):
+                                    with st.spinner(f"Regenerating image {idx + 1}..."):
+                                        new_path = ai_images.regenerate_single_image(
+                                            prompt=item["prompt"],
+                                            api_key=config.app.get("gemini_api_key", ""),
+                                            aspect_ratio=params.video_aspect if hasattr(params, 'video_aspect') else "9:16",
+                                            old_image_path=item["image_path"],
+                                        )
+                                        if new_path:
+                                            st.session_state["storyboard"][idx]["image_path"] = new_path
+                                            st.rerun()
+                            else:
+                                st.warning("Image failed")
+                                if st.button(f"🔄 Retry", key=f"retry_img_{idx}"):
+                                    with st.spinner(f"Generating image {idx + 1}..."):
+                                        new_path = ai_images.regenerate_single_image(
+                                            prompt=item["prompt"],
+                                            api_key=config.app.get("gemini_api_key", ""),
+                                            aspect_ratio=params.video_aspect if hasattr(params, 'video_aspect') else "9:16",
+                                        )
+                                        if new_path:
+                                            st.session_state["storyboard"][idx]["image_path"] = new_path
+                                            st.rerun()
+                        with col_info:
+                            st.caption(f"**Scene {idx + 1}**")
+                            st.text(item["paragraph"][:150] + ("..." if len(item["paragraph"]) > 150 else ""))
+                            st.caption(f"Prompt: {item['prompt'][:120]}...")
+                        st.divider()
 
         selected_index = st.selectbox(
             tr("Video Concat Mode"),
@@ -1051,6 +1120,7 @@ with middle_panel:
         # 视频转场模式
         video_transition_modes = [
             (tr("None"), VideoTransitionMode.none.value),
+            ("Smart (content-aware)", VideoTransitionMode.smart.value),
             (tr("Shuffle"), VideoTransitionMode.shuffle.value),
             (tr("FadeIn"), VideoTransitionMode.fade_in.value),
             (tr("FadeOut"), VideoTransitionMode.fade_out.value),

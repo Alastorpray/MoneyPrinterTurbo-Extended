@@ -302,12 +302,25 @@ def generate_script(
     target_duration: int = 60, research_context: str = ""
 ) -> str:
     # Calculate approximate word count from target duration
-    # Spanish is spoken slower (~1.5 words/sec) than English (~2.5 words/sec) in TTS
+    # Words-per-second rates calibrated for TTS output by language
     lang_lower = (language or "").lower()
-    if lang_lower.startswith("es"):
-        words_per_sec = 1.5
-    else:
-        words_per_sec = 2.5
+    wps_map = {
+        "es": 1.5,   # Spanish — slower articulation
+        "fr": 1.8,   # French
+        "pt": 1.7,   # Portuguese
+        "de": 1.6,   # German — compound words
+        "it": 1.7,   # Italian
+        "ja": 1.2,   # Japanese — fewer words, more meaning per word
+        "ko": 1.3,   # Korean
+        "zh": 1.2,   # Chinese
+        "vi": 1.5,   # Vietnamese
+        "th": 1.4,   # Thai
+    }
+    words_per_sec = 2.5  # Default (English)
+    for prefix, wps in wps_map.items():
+        if lang_lower.startswith(prefix):
+            words_per_sec = wps
+            break
     target_words = int(target_duration * words_per_sec)
 
     research_section = ""

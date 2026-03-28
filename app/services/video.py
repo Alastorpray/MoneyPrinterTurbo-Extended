@@ -136,6 +136,65 @@ def get_bgm_file(bgm_type: str = "random", bgm_file: str = ""):
     return ""
 
 
+def get_smart_transition(clip_index: int, total_clips: int, paragraph_prev: str = "", paragraph_next: str = ""):
+    """
+    Choose a transition based on content analysis between paragraphs.
+    - First clip: fade_in (establish the scene)
+    - Last clip: fade_out (closing)
+    - Short/intense paragraphs: hard cut (no transition)
+    - Scene change (very different content): slide
+    - Continuation of same idea: crossfade (fade_out + fade_in)
+    """
+    # First clip always fades in
+    if clip_index == 0:
+        return "fade_in"
+
+    # Last clip always fades out
+    if clip_index == total_clips - 1:
+        return "fade_out"
+
+    # If we don't have paragraph text, use shuffle
+    if not paragraph_prev or not paragraph_next:
+        return random.choice(["fade_in", "fade_out", "slide_in", "slide_out"])
+
+    # Simple content similarity: check word overlap
+    words_prev = set(paragraph_prev.lower().split())
+    words_next = set(paragraph_next.lower().split())
+    # Remove common stop words
+    stop_words = {"el", "la", "los", "las", "de", "del", "en", "un", "una", "que", "y", "a",
+                  "the", "a", "an", "in", "of", "and", "to", "is", "it", "for", "on", "with"}
+    words_prev -= stop_words
+    words_next -= stop_words
+
+    if not words_prev or not words_next:
+        return "fade_in"
+
+    overlap = len(words_prev & words_next) / max(len(words_prev | words_next), 1)
+
+    if overlap > 0.3:
+        # High overlap = continuation → soft crossfade
+        return "fade_out"
+    elif overlap < 0.1:
+        # Very different = scene change → slide
+        return random.choice(["slide_in", "slide_out"])
+    else:
+        # Medium difference → fade
+        return random.choice(["fade_in", "fade_out"])
+
+
+def _apply_transition_by_name(clip, transition_name: str, shuffle_side: str = "left"):
+    """Apply a transition to a clip by name."""
+    if transition_name == "fade_in":
+        return video_effects.fadein_transition(clip, 1)
+    elif transition_name == "fade_out":
+        return video_effects.fadeout_transition(clip, 1)
+    elif transition_name == "slide_in":
+        return video_effects.slidein_transition(clip, 1, shuffle_side)
+    elif transition_name == "slide_out":
+        return video_effects.slideout_transition(clip, 1, shuffle_side)
+    return clip
+
+
 def combine_videos(
     combined_video_path: str,
     video_paths: List[str],
@@ -247,7 +306,14 @@ def combine_videos(
                 # Apply transitions if specified
                 if video_transition_mode and video_transition_mode.value != VideoTransitionMode.none.value:
                     shuffle_side = random.choice(["left", "right", "top", "bottom"])
-                    if video_transition_mode.value == VideoTransitionMode.fade_in.value:
+                    if video_transition_mode.value == VideoTransitionMode.smart.value:
+                        # Smart transition: analyze content between segments
+                        paragraphs = [s.strip() for s in script.split("\n\n") if s.strip()] if script else []
+                        prev_para = paragraphs[i - 1] if i > 0 and i - 1 < len(paragraphs) else ""
+                        curr_para = paragraphs[i] if i < len(paragraphs) else ""
+                        smart_type = get_smart_transition(i, len(ordered_clips), prev_para, curr_para)
+                        clip = _apply_transition_by_name(clip, smart_type, shuffle_side)
+                    elif video_transition_mode.value == VideoTransitionMode.fade_in.value:
                         clip = video_effects.fadein_transition(clip, 1)
                     elif video_transition_mode.value == VideoTransitionMode.fade_out.value:
                         clip = video_effects.fadeout_transition(clip, 1)
@@ -264,7 +330,7 @@ def combine_videos(
                         ]
                         shuffle_transition = random.choice(transition_funcs)
                         clip = shuffle_transition(clip)
-                
+
                 # Write clip to temp file
                 clip_file = f"{output_dir}/temp-semantic-clip-{i+1}.mp4"
                 clip.write_videofile(
@@ -349,6 +415,12 @@ def combine_videos(
                 shuffle_side = random.choice(["left", "right", "top", "bottom"])
                 if video_transition_mode and video_transition_mode.value == VideoTransitionMode.none.value:
                     clip = clip
+                elif video_transition_mode and video_transition_mode.value == VideoTransitionMode.smart.value:
+                    paragraphs = [s.strip() for s in script.split("\n\n") if s.strip()] if script else []
+                    prev_para = paragraphs[i - 1] if i > 0 and i - 1 < len(paragraphs) else ""
+                    curr_para = paragraphs[i] if i < len(paragraphs) else ""
+                    smart_type = get_smart_transition(i, len(subclipped_items), prev_para, curr_para)
+                    clip = _apply_transition_by_name(clip, smart_type, shuffle_side)
                 elif video_transition_mode and video_transition_mode.value == VideoTransitionMode.fade_in.value:
                     clip = video_effects.fadein_transition(clip, 1)
                 elif video_transition_mode and video_transition_mode.value == VideoTransitionMode.fade_out.value:

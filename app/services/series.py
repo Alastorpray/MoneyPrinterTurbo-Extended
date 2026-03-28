@@ -97,7 +97,7 @@ Research the topic below and create a plan for a video series of {num_episodes} 
     return {}
 
 
-def generate_episode_script(series_data: dict, episode_part: int, language: str = "es") -> str:
+def generate_episode_script(series_data: dict, episode_part: int, language: str = "es", paragraph_number: int = 8) -> str:
     """
     Generate a full narration script for a specific episode.
     """
@@ -148,14 +148,15 @@ Write a narration script for episode {episode_part} of {total_episodes} of the s
 
 ## Requirements:
 1. Write a script that takes approximately 60 seconds to narrate (about 150-180 words).
-2. Start with a brief hook that grabs attention immediately.
-3. If this is not episode 1, briefly reference what happened in the previous episode.
-4. Cover the content described in the episode description.
-5. Use a dramatic, engaging narrative tone.
-6. Do NOT include any formatting, titles, markdown, or speaker indicators.
+2. The script MUST have EXACTLY {paragraph_number} paragraphs separated by blank lines. Each paragraph = 1 visual scene.
+3. Start with a brief hook that grabs attention immediately.
+4. If this is not episode 1, briefly reference what happened in the previous episode.
+5. Cover the content described in the episode description.
+6. Use a dramatic, engaging narrative tone.
+7. Do NOT include any formatting, titles, markdown, or speaker indicators.
 {hook_instruction}
-8. Respond in {language}.
-9. Return ONLY the raw narration text, nothing else.
+9. Respond in {language}.
+10. Return ONLY the raw narration text with exactly {paragraph_number} paragraphs separated by blank lines.
 """.strip()
 
     logger.info(f"Generating script for episode {episode_part}: {episode['title']}")

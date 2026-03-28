@@ -209,7 +209,7 @@ if data:
         if series_video_source_sel[1] == "ai_generated" and not config.app.get("gemini_api_key", ""):
             st.warning("Google AI API Key is required. Set it in the main page Basic Settings.")
 
-        vc1, vc2, vc3 = st.columns(3)
+        vc1, vc2, vc3, vc4 = st.columns(4)
         with vc1:
             video_aspect = st.selectbox(
                 tr("Video Ratio"),
@@ -222,13 +222,21 @@ if data:
                 key="series_aspect",
             )
         with vc2:
-            video_clip_duration = st.slider("Clip Duration (s)", 2, 10, 3, key="series_clip_dur")
+            series_paragraph_number = st.number_input(
+                "Paragraphs (scenes)",
+                min_value=1, max_value=20, value=8, step=1,
+                help="Each paragraph = 1 visual scene/image",
+                key="series_paragraph_number",
+            )
         with vc3:
+            video_clip_duration = st.slider("Clip Duration (s)", 2, 10, 3, key="series_clip_dur",
+                help="Only used for non-AI sources. AI Generated uses per-paragraph duration.")
+        with vc4:
             video_concat_mode = st.selectbox(
                 tr("Video Concat Mode"),
                 options=[
-                    (tr("Random"), VideoConcatMode.random.value),
                     (tr("Sequential"), VideoConcatMode.sequential.value),
+                    (tr("Random"), VideoConcatMode.random.value),
                     ("Semantic", VideoConcatMode.semantic.value),
                 ],
                 format_func=lambda x: x[0],
@@ -264,7 +272,10 @@ if data:
                         i / batch_count,
                         text=f"Generating Part {ep['part']}: {ep['title']}..."
                     )
-                    script = series.generate_episode_script(data, ep["part"], language=series_lang)
+                    script = series.generate_episode_script(
+                        data, ep["part"], language=series_lang,
+                        paragraph_number=series_paragraph_number,
+                    )
                     if script:
                         ep["script"] = script
 
@@ -314,6 +325,8 @@ if data:
                         try:
                             task_id = str(uuid4())
 
+                            _src = config.app.get("video_source", "pexels")
+                            _para_num = series_paragraph_number
                             params = VideoParams(
                                 video_subject=f"{data.get('title', '')} — Part {ep['part']}: {ep['title']}",
                                 video_script=edited_script,
@@ -321,7 +334,7 @@ if data:
                                 video_concat_mode=video_concat_mode[1],
                                 video_clip_duration=video_clip_duration,
                                 video_count=1,
-                                video_source=config.app.get("video_source", "pexels"),
+                                video_source=_src,
                                 voice_name=config.ui.get("voice_name", ""),
                                 voice_volume=1.0,
                                 voice_rate=1.0,
@@ -337,7 +350,8 @@ if data:
                                 enable_word_highlighting=config.ui.get("enable_word_highlighting", False),
                                 word_highlight_color=config.ui.get("highlight_color", "#ff0000"),
                                 n_threads=2,
-                                paragraph_number=1,
+                                paragraph_number=_para_num,
+                                ai_image_count=_para_num if _src == "ai_generated" else None,
                             )
 
                             log_container = st.empty()
@@ -390,7 +404,10 @@ if data:
                 if st.button(f"Generate Script", key=f"gen_script_{ep['part']}"):
                     with st.spinner(f"Generating script for Part {ep['part']}..."):
                         series_lang = data.get("language", "es")
-                        script = series.generate_episode_script(data, ep["part"], language=series_lang)
+                        script = series.generate_episode_script(
+                            data, ep["part"], language=series_lang,
+                            paragraph_number=series_paragraph_number,
+                        )
                         if script:
                             ep["script"] = script
                             folder = series.save_series(data, st.session_state.get("series_folder"))

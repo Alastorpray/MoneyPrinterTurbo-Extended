@@ -26,6 +26,7 @@ class VideoTransitionMode(str, Enum):
     fade_out = "FadeOut"
     slide_in = "SlideIn"
     slide_out = "SlideOut"
+    smart = "Smart"
 
 
 class VideoAspect(str, Enum):
