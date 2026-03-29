@@ -194,6 +194,8 @@ if "ai_image_prompts" not in st.session_state:
     st.session_state["ai_image_prompts"] = []
 if "topic_research" not in st.session_state:
     st.session_state["topic_research"] = ""
+if "viral_angle" not in st.session_state:
+    st.session_state["viral_angle"] = "Neutral"
 if "storyboard" not in st.session_state:
     st.session_state["storyboard"] = []
 
@@ -656,58 +658,20 @@ if not hide_config:
                 if st_llm_account_id:
                     config.app[f"{llm_provider}_account_id"] = st_llm_account_id
 
-        # 右侧面板 - API 密钥设置
+        # 右侧面板 - Gemini key for Research (only if LLM is NOT gemini)
         with right_config_panel:
-
-            def get_keys_from_config(cfg_key):
-                api_keys = config.app.get(cfg_key, [])
-                if isinstance(api_keys, str):
-                    api_keys = [api_keys]
-                api_key = ", ".join(api_keys)
-                return api_key
-
-            def save_keys_to_config(cfg_key, value):
-                value = value.replace(" ", "")
-                if value:
-                    config.app[cfg_key] = value.split(",")
-
-            st.write(tr("Video Source Settings"))
-
-            pexels_api_key = get_keys_from_config("pexels_api_keys")
-            pexels_api_key = st.text_input(
-                tr("Pexels API Key"),
-                value=pexels_api_key,
-                type="password",
-                help="Get your free API key at https://www.pexels.com/api/ — required for Pexels video source",
-            )
-            if pexels_api_key:
-                st.caption("Pexels API Key configured")
+            if llm_provider != "gemini":
+                st.write("**Research (Google Search)**")
+                google_ai_api_key = config.app.get("gemini_api_key", "")
+                google_ai_api_key = st.text_input(
+                    "Gemini API Key (for Research)",
+                    value=google_ai_api_key,
+                    type="password",
+                    help="Needed for the 'Research Topic' button (uses Gemini + Google Search)",
+                )
+                config.app["gemini_api_key"] = google_ai_api_key
             else:
-                st.warning("Pexels API Key is required to download stock videos")
-            save_keys_to_config("pexels_api_keys", pexels_api_key)
-
-            pixabay_api_key = get_keys_from_config("pixabay_api_keys")
-            pixabay_api_key = st.text_input(
-                tr("Pixabay API Key"),
-                value=pixabay_api_key,
-                type="password",
-                help="Get your free API key at https://pixabay.com/api/docs/ — required for Pixabay video source",
-            )
-            save_keys_to_config("pixabay_api_keys", pixabay_api_key)
-
-            st.write("**AI Image Generation (Google AI Studio)**")
-            google_ai_api_key = config.app.get("gemini_api_key", "")
-            google_ai_api_key = st.text_input(
-                "Google AI / Gemini API Key",
-                value=google_ai_api_key,
-                type="password",
-                help="Get your API key at https://aistudio.google.com/apikey — used for both Gemini LLM and AI Generated images",
-            )
-            if google_ai_api_key:
-                st.caption("Google AI API Key configured")
-            else:
-                st.caption("Required only if you use Gemini LLM or 'AI Generated' video source")
-            config.app["gemini_api_key"] = google_ai_api_key
+                st.caption("Gemini API Key is shared for LLM and Research")
 
 llm_provider = config.app.get("llm_provider", "").lower()
 
@@ -728,8 +692,8 @@ with st.container(border=True):
         placeholder="Enter a topic, title, or URL...",
     ).strip()
 
-    # ── Config row: Language | Duration | Paragraphs ──
-    cfg_col1, cfg_col2, cfg_col3 = st.columns(3)
+    # ── Config row: Language | Duration | Paragraphs | Viral Angle ──
+    cfg_col1, cfg_col2, cfg_col3, cfg_col4 = st.columns(4)
 
     with cfg_col1:
         video_languages = [(tr("Auto Detect"), "")]
@@ -782,6 +746,23 @@ with st.container(border=True):
         )
         config.app["paragraph_number"] = paragraph_number
 
+    with cfg_col4:
+        viral_angles = [
+            "Neutral",
+            "Polémica / Debate",
+            "Mitos Destruidos",
+            "Lo Que No Te Cuentan",
+            "Dato Impactante",
+        ]
+        viral_angle = st.selectbox(
+            "Viral Angle",
+            options=viral_angles,
+            index=viral_angles.index(st.session_state.get("viral_angle", "Neutral")),
+            key="viral_angle_select",
+            help="Content angle to maximize engagement and virality.",
+        )
+        st.session_state["viral_angle"] = viral_angle
+
     # ── Action buttons ──
     google_ai_key = config.app.get("gemini_api_key", "")
     btn_cols = [None, None, None]
@@ -801,6 +782,7 @@ with st.container(border=True):
                             params.video_subject,
                             language=params.video_language,
                             api_key=google_ai_key,
+                            viral_angle=st.session_state.get("viral_angle", "Neutral"),
                         )
                         if research:
                             st.session_state["topic_research"] = research.get("topic_research", "")
@@ -817,6 +799,7 @@ with st.container(border=True):
                     paragraph_number=paragraph_number,
                     target_duration=target_duration,
                     research_context=st.session_state.get("topic_research", ""),
+                    viral_angle=st.session_state.get("viral_angle", "Neutral"),
                 )
                 terms = llm.generate_terms(params.video_subject, script)
                 if "Error: " in script:
@@ -900,6 +883,70 @@ with st.container(border=True):
         )
         params.video_source = video_sources[selected_index][1]
         config.app["video_source"] = params.video_source
+
+        if params.video_source == "ai_generated":
+            image_generators = [
+                ("NanoBanana Pro — ~$0.13/img, best quality", "nano_banana_pro"),
+                ("NanoBanana 2 — ~$0.08/img, fast", "nano_banana_2"),
+                ("Flux — Free, no filters", "flux_pollinations"),
+                ("Flux Pro (fal.ai) — ~$0.025/img", "flux_pro"),
+                ("Seedream (fal.ai) — ~$0.04/img", "seedream"),
+                ("Gemini — ~$0.04/img", "gemini"),
+            ]
+            saved_generator = config.app.get("image_generator", "flux_pollinations")
+            gen_index = 0
+            for i, (_, val) in enumerate(image_generators):
+                if val == saved_generator:
+                    gen_index = i
+                    break
+            selected_gen = st.selectbox(
+                "Image Generator",
+                options=range(len(image_generators)),
+                format_func=lambda x: image_generators[x][0],
+                index=gen_index,
+                key="image_generator_select_step2",
+            )
+            config.app["image_generator"] = image_generators[selected_gen][1]
+
+            if image_generators[selected_gen][1] in ("flux_pro", "seedream"):
+                fal_key = st.text_input(
+                    "fal.ai API Key",
+                    value=config.app.get("fal_api_key", ""),
+                    type="password",
+                    help="Get your key at https://fal.ai/dashboard/keys",
+                    key="fal_api_key_step2",
+                )
+                config.app["fal_api_key"] = fal_key
+
+        if params.video_source == "pexels":
+            _pexels_keys = config.app.get("pexels_api_keys", [])
+            if isinstance(_pexels_keys, str):
+                _pexels_keys = [_pexels_keys]
+            _pexels_val = ", ".join(_pexels_keys)
+            _pexels_val = st.text_input(
+                "Pexels API Key",
+                value=_pexels_val,
+                type="password",
+                help="Get your free API key at https://www.pexels.com/api/",
+                key="pexels_key_step2",
+            )
+            if _pexels_val.replace(" ", ""):
+                config.app["pexels_api_keys"] = _pexels_val.replace(" ", "").split(",")
+
+        elif params.video_source == "pixabay":
+            _pixabay_keys = config.app.get("pixabay_api_keys", [])
+            if isinstance(_pixabay_keys, str):
+                _pixabay_keys = [_pixabay_keys]
+            _pixabay_val = ", ".join(_pixabay_keys)
+            _pixabay_val = st.text_input(
+                "Pixabay API Key",
+                value=_pixabay_val,
+                type="password",
+                help="Get your free API key at https://pixabay.com/api/docs/",
+                key="pixabay_key_step2",
+            )
+            if _pixabay_val.replace(" ", ""):
+                config.app["pixabay_api_keys"] = _pixabay_val.replace(" ", "").split(",")
 
         if params.video_source == "local":
             uploaded_files = st.file_uploader(
@@ -1325,10 +1372,16 @@ if start_button:
         scroll_to_bottom()
         st.stop()
 
-    if params.video_source == "ai_generated" and not config.app.get("gemini_api_key", ""):
-        st.error("Please enter your Google AI API Key in Basic Settings to use AI Generated images")
-        scroll_to_bottom()
-        st.stop()
+    if params.video_source == "ai_generated":
+        _gen = config.app.get("image_generator", "flux_pollinations")
+        if _gen in ("gemini", "nano_banana_pro", "nano_banana_2") and not config.app.get("gemini_api_key", ""):
+            st.error("Please enter your Google AI API Key in Basic Settings to use this image generator")
+            scroll_to_bottom()
+            st.stop()
+        elif _gen in ("flux_pro", "seedream") and not config.app.get("fal_api_key", ""):
+            st.error("Please enter your fal.ai API Key to use Flux Pro / Seedream")
+            scroll_to_bottom()
+            st.stop()
 
     if params.video_source == "pexels" and not config.app.get("pexels_api_keys", ""):
         st.error(tr("Please Enter the Pexels API Key"))
@@ -1361,6 +1414,13 @@ if start_button:
         # ai_image_count = paragraph_number (1 image per paragraph)
         params.ai_image_count = config.app.get("paragraph_number", 8)
         params.paragraph_number = params.ai_image_count
+        # Reuse storyboard images if available (avoid regenerating and double cost)
+        storyboard = st.session_state.get("storyboard", [])
+        if storyboard:
+            storyboard_images = [s.get("image_path") for s in storyboard if s.get("image_path") and os.path.exists(s.get("image_path", ""))]
+            if len(storyboard_images) == len(ai_prompts):
+                params.storyboard_images = storyboard_images
+                logger.info(f"Reusing {len(storyboard_images)} storyboard images (no regeneration needed)")
 
     log_container = st.empty()
     log_records = []

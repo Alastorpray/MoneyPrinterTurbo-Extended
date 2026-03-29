@@ -468,7 +468,10 @@ def combine_videos(
         if 'max_reuse_limit' not in locals():
             max_reuse_limit = params.max_video_reuse if params and hasattr(params, 'max_video_reuse') and params.max_video_reuse is not None else None
         
-        if max_reuse_limit and max_reuse_limit == 1:
+        if audio_duration - video_duration < 1.0:
+            # Negligible difference (rounding), no need to loop
+            logger.info(f"video duration ({video_duration:.2f}s) is close enough to audio duration ({audio_duration:.2f}s), skipping loop.")
+        elif max_reuse_limit and max_reuse_limit == 1:
             # User has set max reuse to 1, don't loop clips
             logger.warning(f"video duration ({video_duration:.2f}s) is shorter than audio duration ({audio_duration:.2f}s), but max_video_reuse is set to 1 - NOT looping clips.")
             logger.info(f"final video duration: {video_duration:.2f}s, audio duration: {audio_duration:.2f}s")

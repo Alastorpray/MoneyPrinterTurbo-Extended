@@ -207,12 +207,23 @@ def _generate_response(prompt: str) -> str:
                     safety_settings=safety_settings,
                 )
 
-                try:
-                    response = model.generate_content(prompt)
-                    candidates = response.candidates
-                    generated_text = candidates[0].content.parts[0].text
-                except (AttributeError, IndexError) as e:
-                    print("Gemini Error:", e)
+                import time as _time
+                for _attempt in range(3):
+                    try:
+                        response = model.generate_content(prompt)
+                        candidates = response.candidates
+                        generated_text = candidates[0].content.parts[0].text
+                        break
+                    except Exception as e:
+                        if "429" in str(e) and _attempt < 2:
+                            wait = 10 * (_attempt + 1)
+                            logger.warning(f"Gemini rate limited, retrying in {wait}s... (attempt {_attempt + 1}/3)")
+                            _time.sleep(wait)
+                        elif isinstance(e, (AttributeError, IndexError)):
+                            print("Gemini Error:", e)
+                            break
+                        else:
+                            raise
 
                 return generated_text
 
@@ -299,7 +310,8 @@ def _generate_response(prompt: str) -> str:
 
 def generate_script(
     video_subject: str, language: str = "", paragraph_number: int = 1,
-    target_duration: int = 60, research_context: str = ""
+    target_duration: int = 60, research_context: str = "",
+    viral_angle: str = "Neutral",
 ) -> str:
     # Calculate approximate word count from target duration
     # Words-per-second rates calibrated for TTS output by language
@@ -330,6 +342,44 @@ def generate_script(
 {research_context}
 """
 
+    viral_section = ""
+    _viral_instructions = {
+        "Polémica / Debate": (
+            "## Content Angle: CONTROVERSY & DEBATE\n"
+            "- Present opposing viewpoints and let the audience decide.\n"
+            "- Use provocative questions that challenge common beliefs.\n"
+            "- Include phrases like 'most people think X, but the truth is...'\n"
+            "- Create tension between two sides of the argument.\n"
+            "- End with an open question that invites comments and debate."
+        ),
+        "Mitos Destruidos": (
+            "## Content Angle: MYTH BUSTING\n"
+            "- Start by stating a widely believed myth as if it were true, then destroy it with evidence.\n"
+            "- Use a 'what you've been told vs. what science actually says' structure.\n"
+            "- Be confident and direct when debunking — no hedging.\n"
+            "- Include surprising data or studies that contradict popular belief.\n"
+            "- Make the audience feel they've been lied to and now know the real truth."
+        ),
+        "Lo Que No Te Cuentan": (
+            "## Content Angle: HIDDEN TRUTHS & REVELATIONS\n"
+            "- Frame the content as insider knowledge or suppressed information.\n"
+            "- Use phrases like 'nobody talks about this', 'what they don't want you to know'.\n"
+            "- Build curiosity by hinting at the revelation before delivering it.\n"
+            "- Present little-known facts that feel like secrets being exposed.\n"
+            "- Create urgency — the audience needs to know this NOW."
+        ),
+        "Dato Impactante": (
+            "## Content Angle: SHOCKING FACTS & HOOK\n"
+            "- Open with the most jaw-dropping, counterintuitive fact available.\n"
+            "- Use numbers, percentages, and specific data to maximize impact.\n"
+            "- Each paragraph should contain at least one surprising revelation.\n"
+            "- Structure: shock → explain → shock again → deeper insight.\n"
+            "- Make every sentence feel like it could be a viral headline."
+        ),
+    }
+    if viral_angle and viral_angle != "Neutral" and viral_angle in _viral_instructions:
+        viral_section = f"\n{_viral_instructions[viral_angle]}\n"
+
     prompt = f"""
 # Role: Video Script Generator
 
@@ -337,7 +387,7 @@ def generate_script(
 Generate a narration script for a video of approximately {target_duration} seconds ({target_words} words), depending on the subject of the video.
 The script MUST have EXACTLY {paragraph_number} paragraphs, separated by blank lines (double newline).
 Each paragraph represents one visual scene in the video — so each paragraph should describe or narrate one distinct moment, scene, or idea.
-{research_section}
+{research_section}{viral_section}
 ## Constrains:
 1. the script MUST be approximately {target_words} words long (target duration: {target_duration} seconds).
 2. the script MUST contain EXACTLY {paragraph_number} paragraphs separated by a blank line between each.

@@ -117,6 +117,7 @@ class VideoParams(BaseModel):
     # AI image generation settings
     ai_image_prompts: Optional[List[str]] = None
     ai_image_count: Optional[int] = None
+    storyboard_images: Optional[List[str]] = None  # Pre-generated storyboard image paths to reuse
 
     # Semantic video settings
     segmentation_method: Optional[str] = "sentences"

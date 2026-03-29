@@ -201,10 +201,6 @@ def get_video_materials(task_id, params, video_terms, audio_duration, paragraph_
     elif params.video_source == "ai_generated":
         logger.info("\n\n## generating AI images (1 per paragraph) and converting to video clips")
         api_key = config.app.get("gemini_api_key", "")
-        if not api_key:
-            sm.state.update_task(task_id, state=const.TASK_STATE_FAILED)
-            logger.error("Google AI API key is not set. Please configure it in Basic Settings.")
-            return None
 
         video_script = params.video_script or ""
         aspect = params.video_aspect
@@ -239,6 +235,9 @@ def get_video_materials(task_id, params, video_terms, audio_duration, paragraph_
             clip_durations[-1] = round(clip_durations[-1] + diff, 2)
             logger.info(f"Estimated per-paragraph clip durations: {clip_durations} (total={sum(clip_durations):.1f}s)")
 
+        # Reuse storyboard images if available (saves cost by not regenerating)
+        storyboard_images = getattr(params, "storyboard_images", None)
+
         ai_materials = ai_images.generate_ai_video_materials(
             paragraphs=paragraphs,
             api_key=api_key,
@@ -247,6 +246,7 @@ def get_video_materials(task_id, params, video_terms, audio_duration, paragraph_
             resolution=resolution,
             predefined_prompts=params.ai_image_prompts,
             audio_duration=audio_duration,
+            pregenerated_images=storyboard_images,
         )
         if not ai_materials:
             sm.state.update_task(task_id, state=const.TASK_STATE_FAILED)
@@ -296,6 +296,12 @@ def generate_final_videos(
             utils.task_dir(task_id), f"combined-{index}.mp4"
         )
         logger.info(f"\n\n## combining video: {index} => {combined_video_path}")
+        # For AI generated clips, don't cut them — they already match paragraph audio durations
+        if params.video_source == "ai_generated":
+            _max_clip_dur = max(params.video_clip_duration, 300)
+        else:
+            _max_clip_dur = params.video_clip_duration
+
         video.combine_videos(
             combined_video_path=combined_video_path,
             video_paths=downloaded_videos,
@@ -303,7 +309,7 @@ def generate_final_videos(
             video_aspect=params.video_aspect,
             video_concat_mode=video_concat_mode,
             video_transition_mode=video_transition_mode,
-            max_clip_duration=params.video_clip_duration,
+            max_clip_duration=_max_clip_dur,
             threads=params.n_threads,
             script=video_script,
             params=params,

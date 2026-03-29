@@ -1,6 +1,6 @@
 """
 AI Image Generation Service
-Generates images using Stable Horde (free) or Google Gemini API, and converts them to video clips.
+Generates images using Flux (Pollinations/fal.ai), Seedream (fal.ai), Google Gemini, or Stable Horde.
 """
 import base64
 import os
@@ -16,16 +16,16 @@ from app.services.llm import _generate_response
 from app.utils import utils
 
 
-def _get_research_cache_path(subject: str, language: str = "") -> str:
+def _get_research_cache_path(subject: str, language: str = "", viral_angle: str = "Neutral") -> str:
     """Get cache file path for a research topic."""
     import hashlib
-    cache_key = f"{subject.lower().strip()}_{language.lower().strip()}"
+    cache_key = f"{subject.lower().strip()}_{language.lower().strip()}_{viral_angle.lower().strip()}"
     cache_hash = hashlib.md5(cache_key.encode()).hexdigest()[:12]
     cache_dir = utils.storage_dir("research", create=True)
     return os.path.join(cache_dir, f"{cache_hash}.json")
 
 
-def research_topic(subject: str, language: str = "", api_key: str = "", use_cache: bool = True) -> dict:
+def research_topic(subject: str, language: str = "", api_key: str = "", use_cache: bool = True, viral_angle: str = "Neutral") -> dict:
     """
     Use Gemini with Google Search grounding to research a topic AND its visual style in one call.
     Returns a dict with 'topic_research' and 'visual_style' keys.
@@ -33,7 +33,7 @@ def research_topic(subject: str, language: str = "", api_key: str = "", use_cach
     """
     # Check cache first
     import json as _json
-    cache_path = _get_research_cache_path(subject, language)
+    cache_path = _get_research_cache_path(subject, language, viral_angle)
     if use_cache and os.path.exists(cache_path):
         try:
             with open(cache_path, "r", encoding="utf-8") as f:
@@ -61,6 +61,36 @@ def research_topic(subject: str, language: str = "", api_key: str = "", use_cach
 
     lang_instruction = f"Write the TOPIC RESEARCH section in {language}." if language else "Write the TOPIC RESEARCH section in the same language as the subject."
 
+    viral_research_instructions = {
+        "Polémica / Debate": (
+            "- Focus on CONTROVERSIAL aspects: opposing viewpoints, expert disagreements, public debates.\n"
+            "- Find arguments FOR and AGAINST the topic.\n"
+            "- Include polarizing opinions, contested claims, and unresolved disputes.\n"
+            "- Highlight what makes this topic divisive or debatable."
+        ),
+        "Mitos Destruidos": (
+            "- Focus on MYTHS and MISCONCEPTIONS about this topic.\n"
+            "- Find common beliefs that are actually FALSE or misleading.\n"
+            "- Include scientific studies or data that DEBUNK popular assumptions.\n"
+            "- Highlight the gap between what people believe and what evidence shows."
+        ),
+        "Lo Que No Te Cuentan": (
+            "- Focus on HIDDEN, overlooked, or suppressed aspects of the topic.\n"
+            "- Find little-known facts, behind-the-scenes details, or underreported information.\n"
+            "- Include information that mainstream coverage tends to skip or downplay.\n"
+            "- Highlight surprising connections or consequences most people don't know about."
+        ),
+        "Dato Impactante": (
+            "- Focus on the most SHOCKING and SURPRISING facts about this topic.\n"
+            "- Find jaw-dropping statistics, counterintuitive data, and mind-blowing revelations.\n"
+            "- Include extreme comparisons, unexpected numbers, and striking contrasts.\n"
+            "- Prioritize facts that would make someone stop scrolling."
+        ),
+    }
+    viral_angle_section = ""
+    if viral_angle and viral_angle != "Neutral" and viral_angle in viral_research_instructions:
+        viral_angle_section = f"\n**VIRAL ANGLE — {viral_angle}:**\n{viral_research_instructions[viral_angle]}\n"
+
     search_prompt = f"""
 Search the web for detailed, up-to-date information about: "{subject}"
 
@@ -73,8 +103,32 @@ Write a comprehensive research summary (~300 words) covering:
 - Context, background, and why it's relevant or interesting
 - Recent news or developments if applicable
 - Interesting angles or lesser-known facts
-{lang_instruction}
+{viral_angle_section}{lang_instruction}
 Do NOT write a video script — just provide raw research material that a scriptwriter can use.
+
+===CHARACTER DESCRIPTIONS===
+CRITICAL: Search for real photographs and physical descriptions of each person or character mentioned in the topic. Write an ULTRA-PRECISE physical description (in English) as if you are describing the person to a forensic sketch artist who must produce an exact likeness.
+
+For EACH person/character, write a dense paragraph covering ALL of the following:
+- FACE SHAPE: oval, round, square, heart-shaped, long. Exact proportions (wide face, narrow chin, etc.)
+- FOREHEAD: high, low, broad, narrow, prominent brow ridge
+- EYES: exact shape (hooded, deep-set, protruding, almond, round), distance apart (close-set, wide-set), color, size, distinctive crow's feet or bags
+- EYEBROWS: thick, thin, arched, straight, bushy, sparse, color
+- NOSE: exact shape (bulbous, aquiline, flat, button, wide nostrils, narrow bridge, crooked)
+- MOUTH & LIPS: thin, full, wide, narrow, lip shape, characteristic expression
+- CHIN & JAW: prominent, receding, square, pointed, double chin, jawline definition
+- CHEEKS: hollow, full, high cheekbones, jowls
+- EARS: prominent, close to head, large, small
+- SKIN: exact tone (pale, olive, tan, dark brown, etc.), texture (smooth, weathered, pockmarked), notable marks (moles with exact location, scars, spots, birthmarks)
+- HAIR: exact current style as commonly seen, color (including graying pattern), hairline (receding pattern, widow's peak, bald spot location), texture
+- FACIAL HAIR: clean-shaven, mustache style (pencil, bushy, handlebar), beard style, stubble
+- BUILD: exact height estimate, weight/build (stocky, thin, heavyset, athletic), shoulder width, posture
+- SIGNATURE LOOK: the ONE outfit/accessory they are most iconic for (specific glasses frame shape and color, suit style, hat, tie pattern, watch, jewelry)
+- AGE APPEARANCE: how old they look, key aging features
+
+Use the person's REAL FULL NAME as the label (e.g., "Alberto Fujimori", "Alejandro Toledo").
+The description must be so precise that someone who has never heard of this person could draw them and they would be immediately recognizable.
+If the topic has NO specific people or characters, write "No specific characters" and skip this section.
 
 ===VISUAL STYLE===
 Write a visual style guide (~100 words, in English) for AI image generation covering:
@@ -85,37 +139,66 @@ Write a visual style guide (~100 words, in English) for AI image generation cove
 - Overall mood / atmosphere
 - Art direction references: similar styles from film, photography, or art
 - Costume / character look: typical clothing, appearance style
-Do NOT include character names, logos, or trademarked elements — describe the visual essence only.
+Use the real names from the CHARACTER DESCRIPTIONS section when referring to characters.
 """.strip()
 
+    import time as _time
+
     try:
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=search_prompt,
-            config=types.GenerateContentConfig(
-                tools=[types.Tool(google_search=types.GoogleSearch())],
-            ),
-        )
+        response = None
+        for _attempt in range(3):
+            try:
+                response = client.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=search_prompt,
+                    config=types.GenerateContentConfig(
+                        tools=[types.Tool(google_search=types.GoogleSearch())],
+                    ),
+                )
+                break
+            except Exception as rate_err:
+                if "429" in str(rate_err) and _attempt < 2:
+                    wait = 10 * (_attempt + 1)
+                    logger.warning(f"Rate limited, retrying in {wait}s... (attempt {_attempt + 1}/3)")
+                    _time.sleep(wait)
+                else:
+                    raise
         result = response.text.strip()
         result = result.replace("**", "").replace("*", "")
 
-        # Parse the two sections
+        # Parse the three sections
         topic_research = ""
+        character_descriptions = ""
         visual_style = ""
 
-        if "===VISUAL STYLE===" in result:
-            parts = result.split("===VISUAL STYLE===", 1)
+        # Extract sections in order: TOPIC RESEARCH, CHARACTER DESCRIPTIONS, VISUAL STYLE
+        remaining = result
+
+        if "===CHARACTER DESCRIPTIONS===" in remaining:
+            parts = remaining.split("===CHARACTER DESCRIPTIONS===", 1)
+            topic_research = parts[0]
+            remaining = parts[1]
+        else:
+            topic_research = remaining
+            remaining = ""
+
+        if remaining and "===VISUAL STYLE===" in remaining:
+            parts = remaining.split("===VISUAL STYLE===", 1)
+            character_descriptions = parts[0].strip()
+            visual_style = parts[1].strip()
+        elif "===VISUAL STYLE===" in topic_research:
+            parts = topic_research.split("===VISUAL STYLE===", 1)
             topic_research = parts[0]
             visual_style = parts[1].strip()
-        elif "===TOPIC RESEARCH===" in result:
-            topic_research = result
-        else:
-            topic_research = result
 
         # Clean up topic research header
         topic_research = topic_research.replace("===TOPIC RESEARCH===", "").strip()
 
-        logger.success(f"Research complete for: {subject} (topic: {len(topic_research)} chars, style: {len(visual_style)} chars)")
+        # Merge character descriptions into visual style so image prompts can use them
+        if character_descriptions and character_descriptions != "No specific characters":
+            visual_style = f"## Character Descriptions:\n{character_descriptions}\n\n## Visual Style:\n{visual_style}"
+
+        logger.success(f"Research complete for: {subject} (topic: {len(topic_research)} chars, characters: {len(character_descriptions)} chars, style: {len(visual_style)} chars)")
         result_data = {
             "topic_research": topic_research,
             "visual_style": visual_style,
@@ -159,7 +242,7 @@ IMPORTANT: Use the above description as the primary guide for the visual style, 
 ## Factual Research Context (use this for accurate visual details):
 {research_context}
 
-IMPORTANT: Use the above research to make image prompts accurate — include real locations, settings, architectural details, costumes, and atmosphere that match the actual subject. Do NOT copy trademarked elements, but capture the authentic visual essence.
+IMPORTANT: Use the above research to make image prompts accurate — include real locations, settings, architectural details, costumes, and atmosphere that match the actual subject. If Character Descriptions are included above, you MUST use the FULL physical description verbatim in every image prompt where that character appears.
 """
 
     # Build numbered paragraph list for the LLM
@@ -187,7 +270,7 @@ Generate EXACTLY {num_paragraphs} image prompts — one per paragraph — that v
    - **Color palette**: Dominant colors and tones (cold/warm, desaturated/vivid)
    - **Camera**: Angle (low, high, eye-level), lens (wide, telephoto, macro), framing (symmetrical, rule of thirds)
    - **Mood/Atmosphere**: The emotional feeling the image should evoke
-4. **Inspired, Not Copied**: If the script references known media, capture the *visual essence and atmosphere* without reproducing exact characters, logos, or trademarked elements. Use generic descriptions.
+4. **Character Accuracy — THIS IS THE MOST IMPORTANT RULE**: If character descriptions are provided in the Visual Style section, you MUST embed the person's REAL NAME plus their FULL physical description directly into the image prompt every time they appear. Do NOT summarize or shorten — include the real name, complete facial features, hair, build, skin tone, signature clothing, and distinguishing marks. The AI image generator has no memory between images, so every prompt must contain the real name AND entire character description to maintain consistency. Aim for PHOTOREALISTIC, hyper-detailed accuracy. If a scene mentions multiple characters, include the real name and full description of each one.
 5. **Cinematic Quality**: Reference film photography styles when appropriate.
 6. **Varied Composition**: Alternate between wide establishing shots, medium shots, and close-ups for visual rhythm.
 7. **Prompts must be in English** (for best AI image generation results).
@@ -346,11 +429,143 @@ def generate_image_horde(prompt: str, aspect_ratio: str = "9:16", output_path: s
         return None
 
 
+# ===================== Flux via Pollinations (free, no API key) =====================
+
+def generate_image_flux(prompt: str, aspect_ratio: str = "9:16", output_path: str = None) -> Optional[str]:
+    """
+    Generate an image using Flux model via Pollinations.ai (free, no API key, no filters).
+    """
+    import urllib.parse
+
+    if aspect_ratio == "16:9":
+        width, height = 1280, 720
+    elif aspect_ratio == "1:1":
+        width, height = 1024, 1024
+    else:  # 9:16
+        width, height = 720, 1280
+
+    encoded_prompt = urllib.parse.quote(prompt)
+    seed = int(time.time()) % 1000000
+    url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?model=flux&width={width}&height={height}&seed={seed}&nologo=true"
+
+    try:
+        logger.info(f"Generating image with Flux (Pollinations): {prompt[:80]}...")
+        response = requests.get(url, timeout=120)
+
+        if response.status_code != 200:
+            logger.error(f"Flux image failed: HTTP {response.status_code}")
+            return None
+
+        content_type = response.headers.get("content-type", "")
+        if "image" not in content_type:
+            logger.error(f"Flux returned non-image response: {content_type}")
+            return None
+
+        if not output_path:
+            output_dir = utils.storage_dir("ai_images", create=True)
+            output_path = os.path.join(output_dir, f"img-{int(time.time())}.png")
+
+        with open(output_path, "wb") as f:
+            f.write(response.content)
+
+        logger.success(f"Flux image saved: {output_path}")
+        return output_path
+
+    except Exception as e:
+        logger.error(f"Flux image generation failed: {e}")
+        return None
+
+
+# ===================== fal.ai (Flux Pro / Seedream) =====================
+
+def generate_image_falai(prompt: str, aspect_ratio: str = "9:16", output_path: str = None, model: str = "flux-pro") -> Optional[str]:
+    """
+    Generate an image using fal.ai API (Flux Pro or Seedream).
+    Requires FAL_KEY env var or fal_api_key in config.
+    """
+    fal_key = os.environ.get("FAL_KEY", "") or config.app.get("fal_api_key", "")
+    if not fal_key:
+        logger.warning("No fal.ai API key configured (set FAL_KEY env var or fal_api_key in config)")
+        return None
+
+    try:
+        import fal_client
+    except ImportError:
+        logger.error("fal-client not installed. Run: pip install fal-client")
+        return None
+
+    # Set the key for fal_client
+    os.environ["FAL_KEY"] = fal_key
+
+    # Model endpoints
+    model_endpoints = {
+        "flux-pro": "fal-ai/flux-pro/v1.1",
+        "seedream": "fal-ai/bytedance/seedream/v4.5/text-to-image",
+    }
+    endpoint = model_endpoints.get(model, model_endpoints["flux-pro"])
+
+    # Build arguments based on model
+    if model == "seedream":
+        size_map = {
+            "9:16": "720x1280",
+            "16:9": "1280x720",
+            "1:1": "1024x1024",
+        }
+        arguments = {
+            "prompt": prompt,
+            "image_size": size_map.get(aspect_ratio, "720x1280"),
+            "num_images": 1,
+            "safety_checker": False,
+        }
+    else:  # flux-pro
+        arguments = {
+            "prompt": prompt,
+            "aspect_ratio": aspect_ratio.replace(":", ":"),
+            "output_format": "png",
+            "safety_tolerance": 6,  # most permissive
+        }
+
+    try:
+        logger.info(f"Generating image with fal.ai ({model}): {prompt[:80]}...")
+        result = fal_client.subscribe(endpoint, arguments=arguments)
+
+        images = result.get("images", [])
+        if not images:
+            logger.error("fal.ai returned no images")
+            return None
+
+        img_url = images[0].get("url", "")
+        if not img_url:
+            logger.error("fal.ai returned no image URL")
+            return None
+
+        # Download the image
+        img_response = requests.get(img_url, timeout=60)
+        if img_response.status_code != 200:
+            logger.error(f"Failed to download fal.ai image: HTTP {img_response.status_code}")
+            return None
+
+        if not output_path:
+            output_dir = utils.storage_dir("ai_images", create=True)
+            output_path = os.path.join(output_dir, f"img-{int(time.time())}.png")
+
+        with open(output_path, "wb") as f:
+            f.write(img_response.content)
+
+        logger.success(f"fal.ai image saved ({model}): {output_path}")
+        return output_path
+
+    except Exception as e:
+        logger.error(f"fal.ai image generation failed ({model}): {e}")
+        return None
+
+
 # ===================== Google Gemini (requires billing) =====================
 
-def generate_image_gemini(prompt: str, api_key: str, aspect_ratio: str = "9:16", output_path: str = None) -> Optional[str]:
+def generate_image_gemini(prompt: str, api_key: str, aspect_ratio: str = "9:16", output_path: str = None, model_override: str = "") -> Optional[str]:
     """
     Generate an image using Google Gemini API (requires paid plan for image generation).
+    model_override: specific model to use (e.g., "gemini-3-pro-image-preview" for NanoBanana Pro)
     """
     if not api_key:
         return None
@@ -363,18 +578,35 @@ def generate_image_gemini(prompt: str, api_key: str, aspect_ratio: str = "9:16",
         return None
 
     client = genai.Client(api_key=api_key)
-    models = ["gemini-2.5-flash-image", "gemini-2.0-flash-exp"]
+    if model_override:
+        models = [model_override]
+    else:
+        models = ["gemini-2.5-flash-image", "gemini-2.0-flash-exp"]
 
     for attempt in range(3):
         for model_name in models:
             try:
                 logger.info(f"Generating image with Gemini (attempt {attempt + 1}, {model_name}): {prompt[:60]}...")
 
+                # Map aspect ratio to orientation instruction
+                _orientation = {
+                    "9:16": "VERTICAL/PORTRAIT orientation (9:16 aspect ratio, taller than wide)",
+                    "16:9": "HORIZONTAL/LANDSCAPE orientation (16:9 aspect ratio, wider than tall)",
+                    "1:1": "SQUARE orientation (1:1 aspect ratio)",
+                }.get(aspect_ratio, "VERTICAL/PORTRAIT orientation (9:16)")
+                _full_prompt = f"{prompt}\n\nIMPORTANT: Generate this image in {_orientation}."
+
                 response = client.models.generate_content(
                     model=model_name,
-                    contents=f"Generate a photorealistic, cinematic image: {prompt}",
+                    contents=_full_prompt,
                     config=types.GenerateContentConfig(
                         response_modalities=["IMAGE", "TEXT"],
+                        safety_settings=[
+                            types.SafetySetting(category="HARM_CATEGORY_HARASSMENT", threshold="BLOCK_ONLY_HIGH"),
+                            types.SafetySetting(category="HARM_CATEGORY_HATE_SPEECH", threshold="BLOCK_ONLY_HIGH"),
+                            types.SafetySetting(category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold="BLOCK_ONLY_HIGH"),
+                            types.SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="BLOCK_ONLY_HIGH"),
+                        ],
                     ),
                 )
 
@@ -417,19 +649,46 @@ def generate_image_gemini(prompt: str, api_key: str, aspect_ratio: str = "9:16",
 
 # ===================== Unified generate_image =====================
 
-def generate_image(prompt: str, api_key: str = "", aspect_ratio: str = "9:16", output_path: str = None) -> Optional[str]:
+def generate_image(prompt: str, api_key: str = "", aspect_ratio: str = "9:16", output_path: str = None, image_generator: str = "") -> Optional[str]:
     """
-    Generate an image. Tries Gemini first (if API key with billing), falls back to Stable Horde (free).
+    Generate an image using the selected generator, with automatic fallbacks.
+    Generators: nano_banana_pro, nano_banana_2, flux_pollinations, flux_pro, seedream, gemini, stable_horde
     """
-    # Try Gemini first if API key is available
-    if api_key:
-        result = generate_image_gemini(prompt, api_key, aspect_ratio, output_path)
-        if result:
-            return result
-        logger.info("Gemini failed, falling back to Stable Horde...")
+    generator = image_generator or config.app.get("image_generator", "flux_pollinations")
+    if not api_key:
+        api_key = config.app.get("gemini_api_key", "")
 
-    # Fallback: Stable Horde (free)
-    return generate_image_horde(prompt, aspect_ratio, output_path)
+    # Generate with the selected generator only — no fallback to avoid unexpected costs
+    if generator == "nano_banana_pro":
+        if not api_key:
+            logger.error("NanoBanana Pro requires a Gemini API key")
+            return None
+        return generate_image_gemini(prompt, api_key, aspect_ratio, output_path, model_override="gemini-3-pro-image-preview")
+
+    elif generator == "nano_banana_2":
+        if not api_key:
+            logger.error("NanoBanana 2 requires a Gemini API key")
+            return None
+        return generate_image_gemini(prompt, api_key, aspect_ratio, output_path, model_override="gemini-3.1-flash-image-preview")
+
+    elif generator == "flux_pro":
+        return generate_image_falai(prompt, aspect_ratio, output_path, model="flux-pro")
+
+    elif generator == "seedream":
+        return generate_image_falai(prompt, aspect_ratio, output_path, model="seedream")
+
+    elif generator == "gemini":
+        if not api_key:
+            logger.error("Gemini image generation requires a Gemini API key")
+            return None
+        return generate_image_gemini(prompt, api_key, aspect_ratio, output_path)
+
+    elif generator == "flux_pollinations":
+        return generate_image_flux(prompt, aspect_ratio, output_path)
+
+    else:
+        logger.error(f"Unknown image generator: {generator}")
+        return None
 
 
 # ===================== Image to Video =====================
@@ -515,6 +774,7 @@ def generate_ai_video_materials(
     resolution: Tuple[int, int] = (1080, 1920),
     predefined_prompts: List[str] = None,
     audio_duration: float = 0,
+    pregenerated_images: List[str] = None,
 ) -> List[dict]:
     """
     Full pipeline: generate image prompts (1 per paragraph), create images, convert to video clips.
@@ -571,9 +831,14 @@ def generate_ai_video_materials(
         this_duration = clip_durations[i] if i < len(clip_durations) else 5.0
         logger.info(f"Generating clip {i + 1}/{num_clips} ({this_duration:.1f}s) — Prompt: {img_prompt[:80]}...")
 
-        # Step 2: Generate image
-        img_path = os.path.join(output_dir, f"ai-img-{int(time.time())}-{i}.png")
-        result = generate_image(img_prompt, api_key, aspect_ratio, img_path)
+        # Step 2: Use pre-generated image or generate a new one
+        result = None
+        if pregenerated_images and i < len(pregenerated_images) and pregenerated_images[i] and os.path.exists(pregenerated_images[i]):
+            result = pregenerated_images[i]
+            logger.info(f"Reusing storyboard image for clip {i + 1}: {result}")
+        else:
+            img_path = os.path.join(output_dir, f"ai-img-{int(time.time())}-{i}.png")
+            result = generate_image(img_prompt, api_key, aspect_ratio, img_path)
 
         if not result:
             logger.warning(f"Skipping clip {i + 1}: image generation failed")
