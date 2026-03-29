@@ -43,8 +43,132 @@ st.set_page_config(
 
 streamlit_style = """
 <style>
-h1 {
-    padding-top: 0 !important;
+/* ── Global ── */
+h1 { padding-top: 0 !important; }
+
+/* ── Accent palette ── */
+:root {
+    --accent: #6C5CE7;
+    --accent-light: #a29bfe;
+    --accent-bg: rgba(108, 92, 231, 0.08);
+    --card-border: rgba(108, 92, 231, 0.25);
+    --card-radius: 12px;
+    --success: #00b894;
+    --warn: #fdcb6e;
+    --danger: #e17055;
+    --text-muted: #888;
+}
+
+/* ── Bordered containers (Steps) ── */
+div[data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlockBorderWrapper"] {
+    border: 1px solid var(--card-border) !important;
+    border-radius: var(--card-radius) !important;
+    padding: 0.25rem 0.5rem !important;
+    background: var(--accent-bg) !important;
+}
+
+/* ── Step headers ── */
+div[data-testid="stVerticalBlockBorderWrapper"] h3 {
+    color: var(--accent) !important;
+    font-weight: 700 !important;
+    letter-spacing: -0.3px;
+    font-size: 1.15rem !important;
+    border-bottom: 2px solid var(--accent-light);
+    padding-bottom: 6px;
+    margin-bottom: 12px !important;
+}
+
+/* ── Section labels (bold **text**) ── */
+div[data-testid="stVerticalBlockBorderWrapper"] strong {
+    color: var(--accent-light) !important;
+    font-size: 0.95rem;
+}
+
+/* ── Primary buttons ── */
+button[kind="primary"], button[data-testid="stBaseButton-primary"] {
+    background: linear-gradient(135deg, var(--accent), var(--accent-light)) !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.3px;
+    transition: transform 0.15s ease, box-shadow 0.15s ease !important;
+}
+button[kind="primary"]:hover, button[data-testid="stBaseButton-primary"]:hover {
+    transform: translateY(-1px) !important;
+    box-shadow: 0 4px 15px rgba(108, 92, 231, 0.35) !important;
+}
+
+/* ── Secondary buttons ── */
+button[kind="secondary"], button[data-testid="stBaseButton-secondary"] {
+    border-radius: 8px !important;
+    border: 1px solid var(--card-border) !important;
+    transition: background 0.15s ease !important;
+}
+button[kind="secondary"]:hover, button[data-testid="stBaseButton-secondary"]:hover {
+    background: var(--accent-bg) !important;
+}
+
+/* ── Inputs & selects ── */
+div[data-testid="stTextInput"] input,
+div[data-testid="stTextArea"] textarea,
+div[data-testid="stSelectbox"] > div > div {
+    border-radius: 8px !important;
+    border-color: var(--card-border) !important;
+    transition: border-color 0.2s ease !important;
+}
+div[data-testid="stTextInput"] input:focus,
+div[data-testid="stTextArea"] textarea:focus {
+    border-color: var(--accent) !important;
+    box-shadow: 0 0 0 2px rgba(108, 92, 231, 0.15) !important;
+}
+
+/* ── Expanders ── */
+details[data-testid="stExpander"] {
+    border: 1px solid var(--card-border) !important;
+    border-radius: 8px !important;
+    background: transparent !important;
+}
+details[data-testid="stExpander"] summary {
+    font-weight: 600 !important;
+    font-size: 0.9rem !important;
+}
+
+/* ── Progress bars ── */
+div[data-testid="stProgress"] > div > div > div {
+    background: linear-gradient(90deg, var(--accent), var(--accent-light)) !important;
+    border-radius: 4px !important;
+}
+
+/* ── Sidebar polish ── */
+section[data-testid="stSidebar"] {
+    border-right: 1px solid var(--card-border) !important;
+}
+
+/* ── Toast / alerts ── */
+div[data-testid="stAlert"] {
+    border-radius: 8px !important;
+}
+
+/* ── Script text area bigger ── */
+div[data-testid="stTextArea"] textarea {
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace !important;
+    font-size: 0.85rem !important;
+    line-height: 1.55 !important;
+}
+
+/* ── Storyboard images ── */
+div[data-testid="stImage"] img {
+    border-radius: 8px !important;
+    border: 1px solid var(--card-border);
+}
+
+/* ── Reduce top padding ── */
+.block-container { padding-top: 1.5rem !important; }
+
+/* ── Label styling ── */
+label[data-testid="stWidgetLabel"] p {
+    font-weight: 500 !important;
+    font-size: 0.85rem !important;
 }
 </style>
 """
@@ -586,62 +710,60 @@ if not hide_config:
             config.app["gemini_api_key"] = google_ai_api_key
 
 llm_provider = config.app.get("llm_provider", "").lower()
-panel = st.columns(3)
-left_panel = panel[0]
-middle_panel = panel[1]
-right_panel = panel[2]
 
 params = VideoParams(video_subject="")
 uploaded_files = []
 
-with left_panel:
-    with st.container(border=True):
-        st.write(tr("Video Script Settings"))
-        params.video_subject = st.text_input(
-            tr("Video Subject"),
-            value=st.session_state["video_subject"],
-            key="video_subject_input",
-        ).strip()
+# =====================================================================
+# STEP 1: SCRIPT
+# =====================================================================
+with st.container(border=True):
+    st.subheader("Step 1: Script")
 
-        video_languages = [
-            (tr("Auto Detect"), ""),
-        ]
+    # ── Topic input ──
+    params.video_subject = st.text_input(
+        tr("Video Subject"),
+        value=st.session_state["video_subject"],
+        key="video_subject_input",
+        placeholder="Enter a topic, title, or URL...",
+    ).strip()
+
+    # ── Config row: Language | Duration | Paragraphs ──
+    cfg_col1, cfg_col2, cfg_col3 = st.columns(3)
+
+    with cfg_col1:
+        video_languages = [(tr("Auto Detect"), "")]
         for code in support_locales:
             video_languages.append((code, code))
-
         selected_index = st.selectbox(
             tr("Script Language"),
             index=0,
-            options=range(
-                len(video_languages)
-            ),  # Use the index as the internal option value
-            format_func=lambda x: video_languages[x][
-                0
-            ],  # The label is displayed to the user
+            options=range(len(video_languages)),
+            format_func=lambda x: video_languages[x][0],
         )
         params.video_language = video_languages[selected_index][1]
 
-        # Words-per-second rates calibrated for TTS output by language
+    with cfg_col2:
         _wps_map = {
             "es": 1.5, "fr": 1.8, "pt": 1.7, "de": 1.6, "it": 1.7,
             "ja": 1.2, "ko": 1.3, "zh": 1.2, "vi": 1.5, "th": 1.4,
         }
-        wps = 2.5  # Default (English)
+        wps = 2.5
         if params.video_language:
             for prefix, rate in _wps_map.items():
                 if params.video_language.lower().startswith(prefix):
                     wps = rate
                     break
         video_duration_options = [
-            (f"~30 seconds (~{int(30 * wps)} words)", 30),
-            (f"~1 minute (~{int(60 * wps)} words)", 60),
-            (f"~1.5 minutes (~{int(90 * wps)} words)", 90),
-            (f"~2 minutes (~{int(120 * wps)} words)", 120),
-            (f"~3 minutes (~{int(180 * wps)} words)", 180),
-            (f"~5 minutes (~{int(300 * wps)} words)", 300),
+            (f"~30s (~{int(30 * wps)}w)", 30),
+            (f"~1min (~{int(60 * wps)}w)", 60),
+            (f"~1.5min (~{int(90 * wps)}w)", 90),
+            (f"~2min (~{int(120 * wps)}w)", 120),
+            (f"~3min (~{int(180 * wps)}w)", 180),
+            (f"~5min (~{int(300 * wps)}w)", 300),
         ]
         selected_duration = st.selectbox(
-            "Video Duration",
+            "Duration",
             options=range(len(video_duration_options)),
             format_func=lambda x: video_duration_options[x][0],
             index=1,
@@ -649,14 +771,32 @@ with left_panel:
         )
         target_duration = video_duration_options[selected_duration][1]
 
-        # Research button — only if Google AI key is available
-        google_ai_key = config.app.get("gemini_api_key", "")
-        if google_ai_key:
-            if st.button("🔍 Research Topic & Visual Style", key="research_topic"):
+    with cfg_col3:
+        paragraph_number = st.number_input(
+            "Paragraphs (scenes)",
+            min_value=1, max_value=20,
+            value=config.app.get("paragraph_number", 8),
+            step=1,
+            help="Each paragraph = 1 visual scene. For AI Generated, each gets its own image.",
+            key="paragraph_number_input",
+        )
+        config.app["paragraph_number"] = paragraph_number
+
+    # ── Action buttons ──
+    google_ai_key = config.app.get("gemini_api_key", "")
+    btn_cols = [None, None, None]
+    if google_ai_key:
+        btn_cols = st.columns(3)
+    else:
+        btn_cols = [None] + list(st.columns(2))
+
+    if google_ai_key:
+        with btn_cols[0]:
+            if st.button("Research Topic", key="research_topic", use_container_width=True):
                 if not params.video_subject:
                     st.error(tr("Please Enter the Video Subject"))
                 else:
-                    with st.spinner(f"Researching \"{params.video_subject}\" (topic + visual style)..."):
+                    with st.spinner(f"Researching \"{params.video_subject}\"..."):
                         research = ai_images.research_topic(
                             params.video_subject,
                             language=params.video_language,
@@ -668,34 +808,8 @@ with left_panel:
                         else:
                             st.error("Research failed. Check your Google AI API key.")
 
-        if st.session_state["topic_research"]:
-            topic_research = st.text_area(
-                "Research Context",
-                value=st.session_state["topic_research"],
-                height=150,
-                help="Factual context from web research. The AI will use this to write a more informed script. You can edit it.",
-            )
-            st.session_state["topic_research"] = topic_research
-            if st.button("Clear Research", key="clear_research"):
-                st.session_state["topic_research"] = ""
-                st.session_state["ai_visual_style"] = ""
-                st.rerun()
-
-        # Number of paragraphs (= number of scenes/images for AI generated)
-        paragraph_number = st.number_input(
-            "Number of paragraphs (scenes)",
-            min_value=1,
-            max_value=20,
-            value=config.app.get("paragraph_number", 8),
-            step=1,
-            help="Each paragraph = 1 visual scene. For AI Generated images, each paragraph gets its own image.",
-            key="paragraph_number_input",
-        )
-        config.app["paragraph_number"] = paragraph_number
-
-        if st.button(
-            tr("Generate Video Script and Keywords"), key="auto_generate_script"
-        ):
+    with btn_cols[1]:
+        if st.button("Generate Script + Keywords", key="auto_generate_script", type="primary", use_container_width=True):
             with st.spinner(tr("Generating Video Script and Keywords")):
                 script = llm.generate_script(
                     video_subject=params.video_subject,
@@ -712,48 +826,72 @@ with left_panel:
                 else:
                     st.session_state["video_script"] = script
                     st.session_state["video_terms"] = ", ".join(terms)
+
+    with btn_cols[2]:
+        if st.button("Regenerate Keywords Only", key="auto_generate_terms", use_container_width=True):
+            if params.video_script or st.session_state.get("video_script"):
+                with st.spinner(tr("Generating Video Keywords")):
+                    _script = params.video_script or st.session_state.get("video_script", "")
+                    terms = llm.generate_terms(params.video_subject, _script)
+                    if "Error: " in terms:
+                        st.error(tr(terms))
+                    else:
+                        st.session_state["video_terms"] = ", ".join(terms)
+
+    # ── Research context (collapsible) ──
+    if st.session_state["topic_research"]:
+        with st.expander("Research Context", expanded=False):
+            topic_research = st.text_area(
+                "Research Context",
+                value=st.session_state["topic_research"],
+                height=120,
+                label_visibility="collapsed",
+            )
+            st.session_state["topic_research"] = topic_research
+            if st.button("Clear Research", key="clear_research"):
+                st.session_state["topic_research"] = ""
+                st.session_state["ai_visual_style"] = ""
+                st.rerun()
+
+    # ── Script & Keywords ──
+    script_col, terms_col = st.columns([3, 1])
+    with script_col:
         params.video_script = st.text_area(
-            tr("Video Script"), value=st.session_state["video_script"], height=280
+            tr("Video Script"), value=st.session_state["video_script"], height=250
         )
-        if st.button(tr("Generate Video Keywords"), key="auto_generate_terms"):
-            if not params.video_script:
-                st.error(tr("Please Enter the Video Subject"))
-                st.stop()
-
-            with st.spinner(tr("Generating Video Keywords")):
-                terms = llm.generate_terms(params.video_subject, params.video_script)
-                if "Error: " in terms:
-                    st.error(tr(terms))
-                else:
-                    st.session_state["video_terms"] = ", ".join(terms)
-
+        # Script stats
+        _current_script = params.video_script or st.session_state.get("video_script", "")
+        if _current_script:
+            _paras = [p for p in _current_script.split("\n\n") if p.strip()]
+            _words = len(_current_script.split())
+            _est_secs = int(_words / wps)
+            st.caption(f"{len(_paras)} paragraphs  ·  {_words} words  ·  ~{_est_secs}s estimated")
+    with terms_col:
         params.video_terms = st.text_area(
-            tr("Video Keywords"), value=st.session_state["video_terms"]
+            tr("Video Keywords"), value=st.session_state["video_terms"], height=250
         )
 
-with middle_panel:
-    with st.container(border=True):
-        st.write(tr("Video Settings"))
-        video_concat_modes = [
-            (tr("Sequential"), "sequential"),
-            (tr("Random"), "random"),
-            (tr("Semantic Text Alignment"), "semantic"),
-        ]
+# =====================================================================
+# STEP 2: VIDEO / AUDIO / SUBTITLES
+# =====================================================================
+with st.container(border=True):
+    st.subheader("Step 2: Settings")
+    video_col, audio_col, subs_col = st.columns(3)
+
+    # --- VIDEO COLUMN ---
+    with video_col:
+        st.markdown("**Video**")
         video_sources = [
             (tr("Pexels"), "pexels"),
             (tr("Pixabay"), "pixabay"),
-            ("AI Generated (Google Imagen)", "ai_generated"),
+            ("AI Generated (Imagen)", "ai_generated"),
             (tr("Local file"), "local"),
             (tr("TikTok"), "douyin"),
             (tr("Bilibili"), "bilibili"),
             (tr("Xiaohongshu"), "xiaohongshu"),
         ]
-
         saved_video_source_name = config.app.get("video_source", "pexels")
-        saved_video_source_index = [v[1] for v in video_sources].index(
-            saved_video_source_name
-        )
-
+        saved_video_source_index = [v[1] for v in video_sources].index(saved_video_source_name) if saved_video_source_name in [v[1] for v in video_sources] else 0
         selected_index = st.selectbox(
             tr("Video Source"),
             options=range(len(video_sources)),
@@ -770,354 +908,17 @@ with middle_panel:
                 accept_multiple_files=True,
             )
 
-        if params.video_source == "ai_generated":
-            with st.container(border=True):
-                st.write("🎨 AI Image Settings")
-
-                # Show paragraph count info — images = paragraphs
-                script_text = params.video_script or st.session_state.get("video_script", "")
-                if script_text:
-                    current_paragraphs = [p.strip() for p in script_text.split("\n\n") if p.strip()]
-                    st.info(f"**{len(current_paragraphs)} paragraphs** detected in script = **{len(current_paragraphs)} images** will be generated (1 per paragraph). Each clip duration matches its paragraph's audio.")
-                else:
-                    st.info(f"**{paragraph_number} images** will be generated (1 per paragraph). Generate a script first to see paragraph breakdown.")
-
-                if "ai_visual_style" not in st.session_state:
-                    st.session_state["ai_visual_style"] = config.app.get("ai_visual_style", "")
-
-                st.write("**Visual Style & References**")
-                if st.session_state["ai_visual_style"]:
-                    st.caption("Auto-filled from Research. You can edit it.")
-
-                ai_visual_style = st.text_area(
-                    "Visual Style & References",
-                    value=st.session_state["ai_visual_style"],
-                    height=120,
-                    placeholder="Click '🔍 Research Topic & Visual Style' in Script Settings to auto-fill, or describe manually.\n"
-                        "E.g.: sterile white corridors, fluorescent lighting, cold teal palette, 70s retro-corporate aesthetic",
-                    help="Describe the visual aesthetic, color palette, mood, and references. The AI will use this to guide all image prompts.",
-                    label_visibility="collapsed",
-                )
-                st.session_state["ai_visual_style"] = ai_visual_style
-                config.app["ai_visual_style"] = ai_visual_style
-
-                if st.button("Generate Image Prompts", key="gen_ai_prompts"):
-                    script = params.video_script or st.session_state.get("video_script", "")
-                    if not script:
-                        st.error("Please write or generate a video script first.")
-                    else:
-                        with st.spinner("Generating image prompts (1 per paragraph)..."):
-                            script_paragraphs = [p.strip() for p in script.split("\n\n") if p.strip()]
-                            if not script_paragraphs:
-                                script_paragraphs = [script]
-                            prompts = ai_images.generate_image_prompts(
-                                script_paragraphs, params.video_language or "en",
-                                visual_style=ai_visual_style,
-                                research_context=st.session_state.get("topic_research", ""),
-                            )
-                            st.session_state["ai_image_prompts"] = prompts
-
-                if st.session_state["ai_image_prompts"]:
-                    st.write(f"**{len(st.session_state['ai_image_prompts'])} prompts (1 per paragraph):**")
-                    updated_prompts = []
-                    for i, prompt in enumerate(st.session_state["ai_image_prompts"]):
-                        edited = st.text_area(
-                            f"Paragraph {i + 1} → Image Prompt",
-                            value=prompt,
-                            height=80,
-                            key=f"ai_prompt_{i}",
-                        )
-                        updated_prompts.append(edited)
-                    st.session_state["ai_image_prompts"] = updated_prompts
-
-                    btn_cols = st.columns(2)
-                    with btn_cols[0]:
-                        if st.button("🖼️ Preview Storyboard", key="gen_storyboard"):
-                            script = params.video_script or st.session_state.get("video_script", "")
-                            if script:
-                                with st.spinner("Generating storyboard images..."):
-                                    script_paragraphs = [p.strip() for p in script.split("\n\n") if p.strip()]
-                                    if not script_paragraphs:
-                                        script_paragraphs = [script]
-                                    storyboard = ai_images.generate_storyboard(
-                                        paragraphs=script_paragraphs,
-                                        api_key=config.app.get("gemini_api_key", ""),
-                                        aspect_ratio=params.video_aspect if hasattr(params, 'video_aspect') else "9:16",
-                                        predefined_prompts=st.session_state["ai_image_prompts"],
-                                        visual_style=st.session_state.get("ai_visual_style", ""),
-                                        research_context=st.session_state.get("topic_research", ""),
-                                    )
-                                    st.session_state["storyboard"] = storyboard
-                    with btn_cols[1]:
-                        if st.button("Clear Prompts", key="clear_ai_prompts"):
-                            st.session_state["ai_image_prompts"] = []
-                            st.session_state["storyboard"] = []
-                            st.rerun()
-
-                # Show storyboard preview
-                if st.session_state.get("storyboard"):
-                    st.write("---")
-                    st.write("**🎬 Storyboard Preview**")
-                    for item in st.session_state["storyboard"]:
-                        idx = item["index"]
-                        col_img, col_info = st.columns([1, 2])
-                        with col_img:
-                            if item["image_path"] and os.path.exists(item["image_path"]):
-                                st.image(item["image_path"], width=200)
-                                if st.button(f"🔄 Regenerate", key=f"regen_img_{idx}"):
-                                    with st.spinner(f"Regenerating image {idx + 1}..."):
-                                        new_path = ai_images.regenerate_single_image(
-                                            prompt=item["prompt"],
-                                            api_key=config.app.get("gemini_api_key", ""),
-                                            aspect_ratio=params.video_aspect if hasattr(params, 'video_aspect') else "9:16",
-                                            old_image_path=item["image_path"],
-                                        )
-                                        if new_path:
-                                            st.session_state["storyboard"][idx]["image_path"] = new_path
-                                            st.rerun()
-                            else:
-                                st.warning("Image failed")
-                                if st.button(f"🔄 Retry", key=f"retry_img_{idx}"):
-                                    with st.spinner(f"Generating image {idx + 1}..."):
-                                        new_path = ai_images.regenerate_single_image(
-                                            prompt=item["prompt"],
-                                            api_key=config.app.get("gemini_api_key", ""),
-                                            aspect_ratio=params.video_aspect if hasattr(params, 'video_aspect') else "9:16",
-                                        )
-                                        if new_path:
-                                            st.session_state["storyboard"][idx]["image_path"] = new_path
-                                            st.rerun()
-                        with col_info:
-                            st.caption(f"**Scene {idx + 1}**")
-                            st.text(item["paragraph"][:150] + ("..." if len(item["paragraph"]) > 150 else ""))
-                            st.caption(f"Prompt: {item['prompt'][:120]}...")
-                        st.divider()
-
+        video_aspect_ratios = [
+            (tr("Portrait"), VideoAspect.portrait.value),
+            (tr("Landscape"), VideoAspect.landscape.value),
+        ]
         selected_index = st.selectbox(
-            tr("Video Concat Mode"),
-            index=1,
-            options=range(
-                len(video_concat_modes)
-            ),  # Use the index as the internal option value
-            format_func=lambda x: video_concat_modes[x][
-                0
-            ],  # The label is displayed to the user
+            tr("Video Ratio"),
+            options=range(len(video_aspect_ratios)),
+            format_func=lambda x: video_aspect_ratios[x][0],
         )
-        params.video_concat_mode = VideoConcatMode(
-            video_concat_modes[selected_index][1]
-        )
+        params.video_aspect = VideoAspect(video_aspect_ratios[selected_index][1])
 
-        # Semantic Video Matching Settings - only show when semantic mode is selected
-        if params.video_concat_mode.value == "semantic":
-            with st.container(border=True):
-                st.write(tr("Semantic Video Matching Settings"))
-                st.info(tr("Semantic mode analyzes script content to intelligently match video clips with spoken words for better relevance."))
-                
-                # Check if sentence-transformers is available
-                try:
-                    import sentence_transformers
-                    st.success("✅ Semantic search dependencies are installed and ready.")
-                except ImportError:
-                    st.warning("⚠️ Semantic search requires sentence-transformers package to be installed.")
-                    st.code("pip install sentence-transformers scikit-learn")
-                
-                # Script Segmentation Method
-                segmentation_methods = [
-                    (tr("Split by Sentences"), "sentences"),
-                    (tr("Split by Paragraphs"), "paragraphs"),
-                ]
-                segmentation_index = st.selectbox(
-                    tr("Script Segmentation Method"),
-                    options=range(len(segmentation_methods)),
-                    format_func=lambda x: segmentation_methods[x][0],
-                    index=0,
-                )
-                params.segmentation_method = segmentation_methods[segmentation_index][1]
-                
-                # Minimum Segment Length
-                params.min_segment_length = st.slider(
-                    tr("Minimum Segment Length"),
-                    min_value=10,
-                    max_value=100,
-                    value=config.app.get("minimum_segment_length", 25),
-                    step=5,
-                    help=tr("Minimum character length for each script segment")
-                )
-                
-                # Similarity Threshold
-                params.similarity_threshold = st.slider(
-                    tr("Similarity Threshold"),
-                    min_value=0.0,
-                    max_value=1.0,
-                    value=config.app.get("semantic_similarity_threshold", 0.5),
-                    step=0.05,
-                    help=tr("Minimum similarity score required for video-text matching")
-                )
-                
-                # Video Diversity Threshold
-                params.diversity_threshold = st.slider(
-                    tr("Video Diversity Threshold"),
-                    min_value=1,
-                    max_value=20,
-                    value=config.app.get("video_diversity_threshold", 5),
-                    step=1,
-                    help=tr("Controls how often the same video can be reused")
-                )
-                
-                # Max Video Reuse
-                params.max_video_reuse = st.slider(
-                    tr("Max Video Reuse"),
-                    min_value=1,
-                    max_value=10,
-                    value=2,
-                    step=1,
-                    help=tr("Maximum number of times a single video can be reused in the final output")
-                )
-                
-                # Search Pool Size
-                params.search_pool_size = st.slider(
-                    tr("Search Pool Size"),
-                    min_value=10,
-                    max_value=200,
-                    value=config.app.get("semantic_search_pool_size", 50),
-                    step=10,
-                    help=tr("Number of videos to consider for semantic matching")
-                )
-                
-                # Semantic Search Model
-                semantic_models = [
-                    ("MPNet Base V2 (Recommended)", "all-mpnet-base-v2"),
-                    ("MiniLM L6 V2 (Faster)", "all-MiniLM-L6-v2"),
-                    ("MiniLM L12 V2 (Balanced)", "all-MiniLM-L12-v2"),
-                ]
-                
-                # Find the index of the saved semantic model
-                saved_semantic_model = config.app.get("semantic_search_model", "all-mpnet-base-v2")
-                saved_semantic_model_index = 0
-                for i, (_, model_value) in enumerate(semantic_models):
-                    if model_value == saved_semantic_model:
-                        saved_semantic_model_index = i
-                        break
-                
-                model_index = st.selectbox(
-                    tr("Semantic Search Model"),
-                    options=range(len(semantic_models)),
-                    format_func=lambda x: semantic_models[x][0],
-                    index=saved_semantic_model_index,
-                )
-                params.semantic_model = semantic_models[model_index][1]
-                
-                # Image Similarity Settings
-                st.markdown("---")
-                st.subheader(tr("Image Similarity Settings"))
-                
-                # Check if image similarity dependencies are available
-                image_sim_available = False
-                image_sim_info = {"available": False, "dependencies": ["transformers", "torch", "pillow"]}
-                
-                try:
-                    # Test direct imports of required dependencies
-                    from transformers import CLIPProcessor, CLIPModel
-                    from PIL import Image
-                    import torch
-                    image_sim_available = True
-                    image_sim_info = {"available": True, "dependencies": []}
-                except ImportError as e:
-                    image_sim_available = False
-                    # Try to determine which specific dependency is missing
-                    missing_deps = []
-                    try:
-                        from transformers import CLIPProcessor, CLIPModel
-                    except ImportError:
-                        missing_deps.append("transformers")
-                    
-                    try:
-                        import torch
-                    except ImportError:
-                        missing_deps.append("torch")
-                    
-                    try:
-                        from PIL import Image
-                    except ImportError:
-                        missing_deps.append("pillow")
-                    
-                    if not missing_deps:
-                        missing_deps = ["transformers", "torch", "pillow"]
-                    
-                    image_sim_info = {"available": False, "dependencies": missing_deps}
-                
-                if image_sim_available:
-                    st.success("✅ Image similarity dependencies are installed and ready.")
-                    
-                    # Enable Image Similarity - use config default
-                    params.enable_image_similarity = st.checkbox(
-                        tr("Enable Image Similarity"),
-                        value=config.app.get("enable_image_similarity", False),
-                        help=tr("Compare text with video thumbnails and preview images for better matching")
-                    )
-                    
-                    if params.enable_image_similarity:
-                        # Image Similarity Threshold - use config default
-                        params.image_similarity_threshold = st.slider(
-                            tr("Image Similarity Threshold"),
-                            min_value=0.0,
-                            max_value=1.0,
-                            value=config.app.get("image_similarity_threshold", 0.7),
-                            step=0.05,
-                            help=tr("Minimum image similarity score required for video-text matching")
-                        )
-                        
-                        # Image Similarity Model - use config default
-                        image_models = [
-                            ("CLIP ViT-B/32 (Recommended)", "clip-vit-base-patch32"),
-                            ("CLIP ViT-B/16 (Higher Quality)", "clip-vit-base-patch16"),
-                            ("CLIP ViT-L/14 (Best Quality)", "clip-vit-large-patch14"),
-                        ]
-                        
-                        # Find the index of the saved model
-                        saved_model = config.app.get("image_similarity_model", "clip-vit-base-patch32")
-                        saved_model_index = 0
-                        for i, (_, model_value) in enumerate(image_models):
-                            if model_value == saved_model:
-                                saved_model_index = i
-                                break
-                        
-                        image_model_index = st.selectbox(
-                            tr("Image Similarity Model"),
-                            options=range(len(image_models)),
-                            format_func=lambda x: image_models[x][0],
-                            index=saved_model_index,
-                            help=tr("CLIP model for text-image similarity comparison")
-                        )
-                        params.image_similarity_model = image_models[image_model_index][1]
-                        
-                        st.info(tr("Image similarity analyzes video thumbnails and preview frames to find videos that visually match the script content."))
-                    else:
-                        # Set default values when image similarity is disabled
-                        params.image_similarity_threshold = config.app.get("image_similarity_threshold", 0.7)
-                        params.image_similarity_model = config.app.get("image_similarity_model", "clip-vit-base-patch32")
-                else:
-                    st.warning("⚠️ Image similarity requires additional dependencies.")
-                    missing_deps = ", ".join(image_sim_info.get("dependencies", []))
-                    st.code(f"pip install {missing_deps}")
-                    params.enable_image_similarity = False
-                    params.image_similarity_threshold = 0.7
-                    params.image_similarity_model = "clip-vit-base-patch32"
-        else:
-            # Set default values when not in semantic mode
-            params.segmentation_method = "sentences"
-            params.min_segment_length = config.app.get("minimum_segment_length", 25)
-            params.similarity_threshold = config.app.get("semantic_similarity_threshold", 0.5)
-            params.diversity_threshold = config.app.get("video_diversity_threshold", 5)
-            params.max_video_reuse = 2
-            params.search_pool_size = config.app.get("semantic_search_pool_size", 50)
-            params.semantic_model = config.app.get("semantic_search_model", "all-mpnet-base-v2")
-            # Image similarity defaults
-            params.enable_image_similarity = config.app.get("enable_image_similarity", False)
-            params.image_similarity_threshold = config.app.get("image_similarity_threshold", 0.7)
-            params.image_similarity_model = config.app.get("image_similarity_model", "clip-vit-base-patch32")
-
-        # 视频转场模式
         video_transition_modes = [
             (tr("None"), VideoTransitionMode.none.value),
             ("Smart (content-aware)", VideoTransitionMode.smart.value),
@@ -1133,61 +934,98 @@ with middle_panel:
             format_func=lambda x: video_transition_modes[x][0],
             index=0,
         )
-        params.video_transition_mode = VideoTransitionMode(
-            video_transition_modes[selected_index][1]
-        )
+        params.video_transition_mode = VideoTransitionMode(video_transition_modes[selected_index][1])
 
-        video_aspect_ratios = [
-            (tr("Portrait"), VideoAspect.portrait.value),
-            (tr("Landscape"), VideoAspect.landscape.value),
+        video_concat_modes = [
+            (tr("Sequential"), "sequential"),
+            (tr("Random"), "random"),
+            (tr("Semantic Text Alignment"), "semantic"),
         ]
         selected_index = st.selectbox(
-            tr("Video Ratio"),
-            options=range(
-                len(video_aspect_ratios)
-            ),  # Use the index as the internal option value
-            format_func=lambda x: video_aspect_ratios[x][
-                0
-            ],  # The label is displayed to the user
+            tr("Video Concat Mode"),
+            index=0,
+            options=range(len(video_concat_modes)),
+            format_func=lambda x: video_concat_modes[x][0],
         )
-        params.video_aspect = VideoAspect(video_aspect_ratios[selected_index][1])
+        params.video_concat_mode = VideoConcatMode(video_concat_modes[selected_index][1])
 
         if params.video_source != "ai_generated":
             params.video_clip_duration = st.selectbox(
                 tr("Clip Duration"), options=[2, 3, 4, 5, 6, 7, 8, 9, 10], index=1
             )
         else:
-            st.caption("Clip duration is automatic (matches each paragraph's audio)")
-            params.video_clip_duration = 5  # default, not used for ai_generated
+            params.video_clip_duration = 5
+
         params.video_count = st.selectbox(
             tr("Number of Videos Generated Simultaneously"),
-            options=[1, 2, 3, 4, 5],
-            index=0,
+            options=[1, 2, 3, 4, 5], index=0,
         )
-        
-        # Show warning for multiple videos with semantic mode
-        if params.video_count > 1 and params.video_concat_mode.value == "semantic":
-            st.warning("⚠️ **Multiple Videos + Semantic Mode**: When generating multiple videos, the system will automatically use **Random** concatenation mode instead of Semantic mode to ensure video variety. Semantic mode would produce identical videos, which is not useful for multiple generation.")
 
-    with st.container(border=True):
-        st.write(tr("Audio Settings"))
+        # Semantic settings in collapsible
+        if params.video_concat_mode.value == "semantic":
+            with st.expander("Semantic Settings", expanded=False):
+                try:
+                    import sentence_transformers
+                    st.success("Semantic search ready")
+                except ImportError:
+                    st.warning("Install: `pip install sentence-transformers`")
 
-        # 添加TTS服务器选择下拉框
+                segmentation_methods = [
+                    (tr("Split by Sentences"), "sentences"),
+                    (tr("Split by Paragraphs"), "paragraphs"),
+                ]
+                seg_idx = st.selectbox("Segmentation", options=range(len(segmentation_methods)),
+                    format_func=lambda x: segmentation_methods[x][0], index=0)
+                params.segmentation_method = segmentation_methods[seg_idx][1]
+                params.min_segment_length = st.slider("Min Segment Length", 10, 100, 25, step=5)
+                params.similarity_threshold = st.slider("Similarity Threshold", 0.0, 1.0, 0.5, step=0.05)
+                params.diversity_threshold = st.slider("Diversity Threshold", 1, 20, 5)
+                params.max_video_reuse = st.slider("Max Video Reuse", 1, 10, 2)
+                params.search_pool_size = st.slider("Search Pool Size", 10, 200, 50, step=10)
+
+                semantic_models = [
+                    ("MPNet Base V2", "all-mpnet-base-v2"),
+                    ("MiniLM L6 V2", "all-MiniLM-L6-v2"),
+                    ("MiniLM L12 V2", "all-MiniLM-L12-v2"),
+                ]
+                saved_sm = config.app.get("semantic_search_model", "all-mpnet-base-v2")
+                sm_idx = next((i for i, (_, v) in enumerate(semantic_models) if v == saved_sm), 0)
+                model_idx = st.selectbox("Semantic Model", options=range(len(semantic_models)),
+                    format_func=lambda x: semantic_models[x][0], index=sm_idx)
+                params.semantic_model = semantic_models[model_idx][1]
+
+                # Image similarity
+                params.enable_image_similarity = st.checkbox("Enable Image Similarity", value=False)
+                if params.enable_image_similarity:
+                    params.image_similarity_threshold = st.slider("Image Similarity Threshold", 0.0, 1.0, 0.7, step=0.05)
+                    params.image_similarity_model = "clip-vit-base-patch32"
+                else:
+                    params.image_similarity_threshold = 0.7
+                    params.image_similarity_model = "clip-vit-base-patch32"
+        else:
+            params.segmentation_method = "sentences"
+            params.min_segment_length = 25
+            params.similarity_threshold = 0.5
+            params.diversity_threshold = 5
+            params.max_video_reuse = 2
+            params.search_pool_size = 50
+            params.semantic_model = config.app.get("semantic_search_model", "all-mpnet-base-v2")
+            params.enable_image_similarity = False
+            params.image_similarity_threshold = 0.7
+            params.image_similarity_model = "clip-vit-base-patch32"
+
+    # --- AUDIO COLUMN ---
+    with audio_col:
+        st.markdown("**Audio**")
         tts_servers = [
             ("azure-tts-v1", "Azure TTS V1"),
             ("azure-tts-v2", "Azure TTS V2"),
             ("siliconflow", "SiliconFlow TTS"),
-            ("chatterbox", "Chatterbox TTS (Open Source)"),
+            ("chatterbox", "Chatterbox TTS"),
             ("elevenlabs", "ElevenLabs TTS"),
         ]
-
-        # 获取保存的TTS服务器，默认为v1
         saved_tts_server = config.ui.get("tts_server", "azure-tts-v1")
-        saved_tts_server_index = 0
-        for i, (server_value, _) in enumerate(tts_servers):
-            if server_value == saved_tts_server:
-                saved_tts_server_index = i
-                break
+        saved_tts_server_index = next((i for i, (v, _) in enumerate(tts_servers) if v == saved_tts_server), 0)
 
         selected_tts_server_index = st.selectbox(
             tr("TTS Servers"),
@@ -1195,243 +1033,101 @@ with middle_panel:
             format_func=lambda x: tts_servers[x][1],
             index=saved_tts_server_index,
         )
-
         selected_tts_server = tts_servers[selected_tts_server_index][0]
         config.ui["tts_server"] = selected_tts_server
 
-        # 根据选择的TTS服务器获取声音列表
         filtered_voices = []
-
         if selected_tts_server == "siliconflow":
-            # 获取硅基流动的声音列表
             filtered_voices = voice.get_siliconflow_voices()
         elif selected_tts_server == "chatterbox":
-            # 获取Chatterbox的声音列表
             filtered_voices = voice.get_chatterbox_voices()
         elif selected_tts_server == "elevenlabs":
             filtered_voices = voice.get_elevenlabs_voices()
         else:
-            # 获取Azure的声音列表
             all_voices = voice.get_all_azure_voices(filter_locals=None)
-
-            # 根据选择的TTS服务器筛选声音
             for v in all_voices:
                 if selected_tts_server == "azure-tts-v2":
-                    # V2版本的声音名称中包含"v2"
                     if "V2" in v:
                         filtered_voices.append(v)
                 else:
-                    # V1版本的声音名称中不包含"v2"
                     if "V2" not in v:
                         filtered_voices.append(v)
 
         def make_friendly_name(v):
             if v.startswith("elevenlabs:"):
-                # Format: elevenlabs:voice_id:DisplayInfo → clean display name
                 parts = v.split(":", 2)
                 if len(parts) >= 3:
                     return parts[2]
-            return (
-                v.replace("Female", tr("Female"))
-                .replace("Male", tr("Male"))
-                .replace("Neural", "")
-            )
+            return v.replace("Female", tr("Female")).replace("Male", tr("Male")).replace("Neural", "")
 
         friendly_names = {v: make_friendly_name(v) for v in filtered_voices}
-
         saved_voice_name = config.ui.get("voice_name", "")
         saved_voice_name_index = 0
-
-        # 检查保存的声音是否在当前筛选的声音列表中
         if saved_voice_name in friendly_names:
             saved_voice_name_index = list(friendly_names.keys()).index(saved_voice_name)
         else:
-            # 如果不在，则根据当前UI语言选择一个默认声音
             for i, v in enumerate(filtered_voices):
                 if v.lower().startswith(st.session_state["ui_language"].lower()):
                     saved_voice_name_index = i
                     break
-
-        # 如果没有找到匹配的声音，使用第一个声音
         if saved_voice_name_index >= len(friendly_names) and friendly_names:
             saved_voice_name_index = 0
 
-        # 确保有声音可选
         voice_name = ""
         if friendly_names:
             selected_friendly_name = st.selectbox(
                 tr("Speech Synthesis"),
                 options=list(friendly_names.values()),
-                index=min(saved_voice_name_index, len(friendly_names) - 1)
-                if friendly_names
-                else 0,
+                index=min(saved_voice_name_index, len(friendly_names) - 1) if friendly_names else 0,
             )
-
-            voice_name = list(friendly_names.keys())[
-                list(friendly_names.values()).index(selected_friendly_name)
-            ]
+            voice_name = list(friendly_names.keys())[list(friendly_names.values()).index(selected_friendly_name)]
             params.voice_name = voice_name
             config.ui["voice_name"] = voice_name
         else:
-            # 如果没有声音可选，显示提示信息
-            st.warning(
-                tr(
-                    "No voices available for the selected TTS server. Please select another server."
-                )
-            )
+            st.warning(tr("No voices available for the selected TTS server. Please select another server."))
             params.voice_name = ""
             config.ui["voice_name"] = ""
 
-        # Chatterbox TTS特殊设置
-        if selected_tts_server == "chatterbox" and friendly_names:
-            st.write("---")
-            st.write("**Chatterbox TTS Settings**")
-            
-            # 显示当前选择的声音类型
-            if voice_name.startswith("chatterbox:default:"):
-                st.info("🎙️ Using default Chatterbox voice")
-            elif voice_name.startswith("chatterbox:clone:"):
-                voice_base_name = voice_name.split(":")[-1].split("-")[0]
-                if voice_base_name == "Voice Clone":
-                    st.info("🎯 Voice cloning mode - add reference audio files to reference_audio/ folder")
-                else:
-                    st.success(f"🎭 Voice cloning with: {voice_base_name}")
-            
-            # 显示参考音频文件夹信息
-            import os
-            from app.utils import utils
-            reference_audio_dir = os.path.join(utils.root_dir(), "reference_audio")
-            
-            if not os.path.exists(reference_audio_dir):
-                with st.expander("📁 Voice Cloning Setup", expanded=False):
-                    st.warning("Reference audio folder not found. Create it to enable voice cloning:")
-                    st.code(f"mkdir {reference_audio_dir}")
-                    st.info("Add your reference audio files (.wav, .mp3, .flac, .m4a) to this folder for voice cloning.")
-            else:
-                audio_files = [f for f in os.listdir(reference_audio_dir) 
-                             if f.lower().endswith(('.wav', '.mp3', '.flac', '.m4a'))]
-                
-                with st.expander(f"📁 Voice Cloning Files ({len(audio_files)} found)", expanded=False):
-                    if audio_files:
-                        st.success(f"Found {len(audio_files)} reference audio files:")
-                        for file in audio_files:
-                            st.write(f"• {file}")
-                    else:
-                        st.info("No reference audio files found. Add .wav, .mp3, .flac, or .m4a files for voice cloning.")
-            
-
-
-        # 只有在有声音可选时才显示试听按钮
         if friendly_names and st.button(tr("Play Voice")):
-            play_content = params.video_subject
-            if not play_content:
-                play_content = params.video_script
-            if not play_content:
-                play_content = tr("Voice Example")
+            play_content = params.video_subject or params.video_script or tr("Voice Example")
             with st.spinner(tr("Synthesizing Voice")):
                 temp_dir = utils.storage_dir("temp", create=True)
                 audio_file = os.path.join(temp_dir, f"tmp-voice-{str(uuid4())}.mp3")
-                sub_maker = voice.tts(
-                    text=play_content,
-                    voice_name=voice_name,
-                    voice_rate=params.voice_rate,
-                    voice_file=audio_file,
-                    voice_volume=params.voice_volume,
-                )
-                # if the voice file generation failed, try again with a default content.
+                sub_maker = voice.tts(text=play_content, voice_name=voice_name,
+                    voice_rate=params.voice_rate, voice_file=audio_file, voice_volume=params.voice_volume)
                 if not sub_maker:
-                    play_content = "This is a example voice. if you hear this, the voice synthesis failed with the original content."
-                    sub_maker = voice.tts(
-                        text=play_content,
-                        voice_name=voice_name,
-                        voice_rate=params.voice_rate,
-                        voice_file=audio_file,
-                        voice_volume=params.voice_volume,
-                    )
-
+                    sub_maker = voice.tts(text="This is an example voice.", voice_name=voice_name,
+                        voice_rate=params.voice_rate, voice_file=audio_file, voice_volume=params.voice_volume)
                 if sub_maker and os.path.exists(audio_file):
                     st.audio(audio_file, format="audio/mp3")
-                    if os.path.exists(audio_file):
-                        os.remove(audio_file)
+                    os.remove(audio_file)
 
-        # 当选择V2版本或者声音是V2声音时，显示服务区域和API key输入框
-        if selected_tts_server == "azure-tts-v2" or (
-            voice_name and voice.is_azure_v2_voice(voice_name)
-        ):
-            saved_azure_speech_region = config.azure.get("speech_region", "")
-            saved_azure_speech_key = config.azure.get("speech_key", "")
-            azure_speech_region = st.text_input(
-                tr("Speech Region"),
-                value=saved_azure_speech_region,
-                key="azure_speech_region_input",
-            )
-            azure_speech_key = st.text_input(
-                tr("Speech Key"),
-                value=saved_azure_speech_key,
-                type="password",
-                key="azure_speech_key_input",
-            )
-            config.azure["speech_region"] = azure_speech_region
-            config.azure["speech_key"] = azure_speech_key
+        # TTS-specific API keys in expander
+        with st.expander("TTS API Keys", expanded=False):
+            if selected_tts_server == "azure-tts-v2" or (voice_name and voice.is_azure_v2_voice(voice_name)):
+                azure_speech_region = st.text_input(tr("Speech Region"), value=config.azure.get("speech_region", ""))
+                azure_speech_key = st.text_input(tr("Speech Key"), value=config.azure.get("speech_key", ""), type="password")
+                config.azure["speech_region"] = azure_speech_region
+                config.azure["speech_key"] = azure_speech_key
+            if selected_tts_server == "siliconflow" or (voice_name and voice.is_siliconflow_voice(voice_name)):
+                siliconflow_api_key = st.text_input("SiliconFlow API Key", value=config.siliconflow.get("api_key", ""), type="password")
+                config.siliconflow["api_key"] = siliconflow_api_key
+            if selected_tts_server == "elevenlabs" or (voice_name and voice.is_elevenlabs_voice(voice_name)):
+                elevenlabs_api_key = st.text_input("ElevenLabs API Key", value=config.elevenlabs.get("api_key", ""), type="password")
+                config.elevenlabs["api_key"] = elevenlabs_api_key
 
-        # 当选择硅基流动时，显示API key输入框和说明信息
-        if selected_tts_server == "siliconflow" or (
-            voice_name and voice.is_siliconflow_voice(voice_name)
-        ):
-            saved_siliconflow_api_key = config.siliconflow.get("api_key", "")
+        # Chatterbox voice cloning info
+        if selected_tts_server == "chatterbox" and friendly_names:
+            with st.expander("Voice Cloning", expanded=False):
+                reference_audio_dir = os.path.join(root_dir, "reference_audio")
+                if os.path.exists(reference_audio_dir):
+                    audio_files = [f for f in os.listdir(reference_audio_dir) if f.lower().endswith(('.wav', '.mp3', '.flac', '.m4a'))]
+                    st.write(f"{len(audio_files)} reference audio files found")
+                else:
+                    st.info("Create `reference_audio/` folder for voice cloning")
 
-            siliconflow_api_key = st.text_input(
-                tr("SiliconFlow API Key"),
-                value=saved_siliconflow_api_key,
-                type="password",
-                key="siliconflow_api_key_input",
-            )
-
-            # 显示硅基流动的说明信息
-            st.info(
-                tr("SiliconFlow TTS Settings")
-                + ":\n"
-                + "- "
-                + tr("Speed: Range [0.25, 4.0], default is 1.0")
-                + "\n"
-                + "- "
-                + tr("Volume: Uses Speech Volume setting, default 1.0 maps to gain 0")
-            )
-
-            config.siliconflow["api_key"] = siliconflow_api_key
-
-        # ElevenLabs API key input
-        if selected_tts_server == "elevenlabs" or (
-            voice_name and voice.is_elevenlabs_voice(voice_name)
-        ):
-            saved_elevenlabs_api_key = config.elevenlabs.get("api_key", "")
-
-            elevenlabs_api_key = st.text_input(
-                tr("ElevenLabs API Key"),
-                value=saved_elevenlabs_api_key,
-                type="password",
-                key="elevenlabs_api_key_input",
-                help="Get your API key at https://elevenlabs.io — free tier includes characters per month",
-            )
-
-            if elevenlabs_api_key:
-                st.caption("ElevenLabs API Key configured")
-            else:
-                st.warning("ElevenLabs API Key is required")
-
-            config.elevenlabs["api_key"] = elevenlabs_api_key
-
-        params.voice_volume = st.selectbox(
-            tr("Speech Volume"),
-            options=[0.6, 0.8, 1.0, 1.2, 1.5, 2.0, 3.0, 4.0, 5.0],
-            index=2,
-        )
-
-        params.voice_rate = st.selectbox(
-            tr("Speech Rate"),
-            options=[0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.5, 1.8, 2.0],
-            index=2,
-        )
+        params.voice_volume = st.selectbox(tr("Speech Volume"), options=[0.6, 0.8, 1.0, 1.2, 1.5, 2.0, 3.0, 4.0, 5.0], index=2)
+        params.voice_rate = st.selectbox(tr("Speech Rate"), options=[0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.5, 1.8, 2.0], index=2)
 
         bgm_options = [
             (tr("No Background Music"), ""),
@@ -1439,84 +1135,50 @@ with middle_panel:
             (tr("Custom Background Music"), "custom"),
         ]
         selected_index = st.selectbox(
-            tr("Background Music"),
-            index=1,
-            options=range(
-                len(bgm_options)
-            ),  # Use the index as the internal option value
-            format_func=lambda x: bgm_options[x][
-                0
-            ],  # The label is displayed to the user
+            tr("Background Music"), index=1,
+            options=range(len(bgm_options)),
+            format_func=lambda x: bgm_options[x][0],
         )
-        # Get the selected background music type
         params.bgm_type = bgm_options[selected_index][1]
-
-        # Show or hide components based on the selection
         if params.bgm_type == "custom":
-            custom_bgm_file = st.text_input(
-                tr("Custom Background Music File"), key="custom_bgm_file_input"
-            )
+            custom_bgm_file = st.text_input(tr("Custom Background Music File"), key="custom_bgm_file_input")
             if custom_bgm_file and os.path.exists(custom_bgm_file):
                 params.bgm_file = custom_bgm_file
-                # st.write(f":red[已选择自定义背景音乐]：**{custom_bgm_file}**")
-        params.bgm_volume = st.selectbox(
-            tr("Background Music Volume"),
-            options=[0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
-            index=2,
-        )
+        params.bgm_volume = st.selectbox(tr("Background Music Volume"),
+            options=[0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0], index=2)
 
-with right_panel:
-    with st.container(border=True):
-        st.write(tr("Subtitle Settings"))
+    # --- SUBTITLES COLUMN ---
+    with subs_col:
+        st.markdown("**Subtitles**")
         params.subtitle_enabled = st.checkbox(tr("Enable Subtitles"), value=True)
         font_names = get_all_fonts()
         saved_font_name = config.ui.get("font_name", "MicrosoftYaHeiBold.ttc")
-        saved_font_name_index = 0
-        if saved_font_name in font_names:
-            saved_font_name_index = font_names.index(saved_font_name)
-        params.font_name = st.selectbox(
-            tr("Font"), font_names, index=saved_font_name_index
-        )
+        saved_font_name_index = font_names.index(saved_font_name) if saved_font_name in font_names else 0
+        params.font_name = st.selectbox(tr("Font"), font_names, index=saved_font_name_index)
         config.ui["font_name"] = params.font_name
 
         subtitle_positions = [
-            (tr("Top"), "top"),
-            (tr("Center"), "center"),
-            (tr("Bottom"), "bottom"),
-            (tr("Custom"), "custom"),
+            (tr("Top"), "top"), (tr("Center"), "center"),
+            (tr("Bottom"), "bottom"), (tr("Custom"), "custom"),
         ]
-        selected_index = st.selectbox(
-            tr("Position"),
-            index=2,
+        selected_index = st.selectbox(tr("Position"), index=2,
             options=range(len(subtitle_positions)),
-            format_func=lambda x: subtitle_positions[x][0],
-        )
+            format_func=lambda x: subtitle_positions[x][0])
         params.subtitle_position = subtitle_positions[selected_index][1]
 
         if params.subtitle_position == "custom":
-            custom_position = st.text_input(
-                tr("Custom Position (% from top)"),
-                value="70.0",
-                key="custom_position_input",
-            )
+            custom_position = st.text_input(tr("Custom Position (% from top)"), value="70.0", key="custom_position_input")
             try:
                 params.custom_position = float(custom_position)
-                if params.custom_position < 0 or params.custom_position > 100:
-                    st.error(tr("Please enter a value between 0 and 100"))
             except ValueError:
                 st.error(tr("Please enter a valid number"))
 
         font_cols = st.columns([0.3, 0.7])
         with font_cols[0]:
-            saved_text_fore_color = config.ui.get("text_fore_color", "#FFFFFF")
-            params.text_fore_color = st.color_picker(
-                tr("Font Color"), saved_text_fore_color
-            )
+            params.text_fore_color = st.color_picker(tr("Font Color"), config.ui.get("text_fore_color", "#FFFFFF"))
             config.ui["text_fore_color"] = params.text_fore_color
-
         with font_cols[1]:
-            saved_font_size = config.ui.get("font_size", 60)
-            params.font_size = st.slider(tr("Font Size"), 30, 100, saved_font_size)
+            params.font_size = st.slider(tr("Font Size"), 30, 100, config.ui.get("font_size", 60))
             config.ui["font_size"] = params.font_size
 
         stroke_cols = st.columns([0.3, 0.7])
@@ -1525,41 +1187,129 @@ with right_panel:
         with stroke_cols[1]:
             params.stroke_width = st.slider(tr("Stroke Width"), 0.0, 10.0, 1.5)
 
-        # Word highlighting settings
-        st.write("**Word Highlighting**")
-        saved_enable_word_highlighting = config.ui.get("enable_word_highlighting", False)
-        params.enable_word_highlighting = st.checkbox(
-            tr("Enable Word Highlighting (If unchecked, the settings below will not take effect)"), 
-            value=saved_enable_word_highlighting
-        )
-        config.ui["enable_word_highlighting"] = params.enable_word_highlighting
-        
-        if params.enable_word_highlighting:
-            highlight_cols = st.columns([0.3, 0.7])
-            with highlight_cols[0]:
-                saved_highlight_color = config.ui.get("highlight_color", "#ff0000")
-                params.word_highlight_color = st.color_picker(
-                    tr("Highlight Color"), saved_highlight_color
-                )
+        with st.expander("Word Highlighting", expanded=False):
+            params.enable_word_highlighting = st.checkbox(
+                tr("Enable Word Highlighting (If unchecked, the settings below will not take effect)"),
+                value=config.ui.get("enable_word_highlighting", False))
+            config.ui["enable_word_highlighting"] = params.enable_word_highlighting
+            if params.enable_word_highlighting:
+                params.word_highlight_color = st.color_picker(tr("Highlight Color"), config.ui.get("highlight_color", "#ff0000"))
                 config.ui["highlight_color"] = params.word_highlight_color
-            
-            with highlight_cols[1]:
-                saved_max_chars_per_line = config.ui.get("max_chars_per_line", 40)
-                params.max_chars_per_line = st.slider(
-                    tr("Max Characters Per Line"), 20, 80, saved_max_chars_per_line
-                )
+                params.max_chars_per_line = st.slider(tr("Max Characters Per Line"), 20, 80, config.ui.get("max_chars_per_line", 40))
                 config.ui["max_chars_per_line"] = params.max_chars_per_line
-            
-            saved_max_lines_per_subtitle = config.ui.get("max_lines_per_subtitle", 2)
-            params.max_lines_per_subtitle = st.slider(
-                tr("Max Lines Per Subtitle"), 1, 4, saved_max_lines_per_subtitle
-            )
-            config.ui["max_lines_per_subtitle"] = params.max_lines_per_subtitle
+                params.max_lines_per_subtitle = st.slider(tr("Max Lines Per Subtitle"), 1, 4, config.ui.get("max_lines_per_subtitle", 2))
+                config.ui["max_lines_per_subtitle"] = params.max_lines_per_subtitle
+            else:
+                params.word_highlight_color = config.ui.get("highlight_color", "#ff0000")
+                params.max_chars_per_line = config.ui.get("max_chars_per_line", 40)
+                params.max_lines_per_subtitle = config.ui.get("max_lines_per_subtitle", 2)
+
+# =====================================================================
+# STEP 3: AI IMAGES (only when source = ai_generated)
+# =====================================================================
+if params.video_source == "ai_generated":
+    with st.container(border=True):
+        st.subheader("Step 3: AI Images")
+
+        script_text = params.video_script or st.session_state.get("video_script", "")
+        if script_text:
+            current_paragraphs = [p.strip() for p in script_text.split("\n\n") if p.strip()]
+            st.info(f"**{len(current_paragraphs)} paragraphs** = **{len(current_paragraphs)} images** (1 per paragraph). Each clip matches its paragraph audio duration.")
         else:
-            # Set default values when word highlighting is disabled
-            params.word_highlight_color = config.ui.get("highlight_color", "#ff0000")
-            params.max_chars_per_line = config.ui.get("max_chars_per_line", 40)
-            params.max_lines_per_subtitle = config.ui.get("max_lines_per_subtitle", 2)
+            st.info(f"**{paragraph_number} images** will be generated. Generate a script first.")
+
+        if "ai_visual_style" not in st.session_state:
+            st.session_state["ai_visual_style"] = config.app.get("ai_visual_style", "")
+
+        ai_visual_style = st.text_area(
+            "Visual Style & References",
+            value=st.session_state["ai_visual_style"],
+            height=80,
+            placeholder="Describe visual aesthetic, color palette, mood. Auto-filled from Research.",
+            help="The AI will use this to guide all image prompts consistently.",
+        )
+        st.session_state["ai_visual_style"] = ai_visual_style
+        config.app["ai_visual_style"] = ai_visual_style
+
+        if st.button("Generate Image Prompts", key="gen_ai_prompts", use_container_width=True):
+            script = params.video_script or st.session_state.get("video_script", "")
+            if not script:
+                st.error("Please write or generate a video script first.")
+            else:
+                with st.spinner("Generating image prompts (1 per paragraph)..."):
+                    script_paragraphs = [p.strip() for p in script.split("\n\n") if p.strip()]
+                    if not script_paragraphs:
+                        script_paragraphs = [script]
+                    prompts = ai_images.generate_image_prompts(
+                        script_paragraphs, params.video_language or "en",
+                        visual_style=ai_visual_style,
+                        research_context=st.session_state.get("topic_research", ""),
+                    )
+                    st.session_state["ai_image_prompts"] = prompts
+
+        if st.session_state["ai_image_prompts"]:
+            st.write(f"**{len(st.session_state['ai_image_prompts'])} prompts (1 per paragraph):**")
+            updated_prompts = []
+            for i, prompt in enumerate(st.session_state["ai_image_prompts"]):
+                edited = st.text_area(
+                    f"Scene {i + 1}", value=prompt, height=70, key=f"ai_prompt_{i}",
+                )
+                updated_prompts.append(edited)
+            st.session_state["ai_image_prompts"] = updated_prompts
+
+            sb_col1, sb_col2 = st.columns(2)
+            with sb_col1:
+                if st.button("🖼️ Preview Storyboard", key="gen_storyboard", use_container_width=True):
+                    script = params.video_script or st.session_state.get("video_script", "")
+                    if script:
+                        with st.spinner("Generating storyboard images..."):
+                            script_paragraphs = [p.strip() for p in script.split("\n\n") if p.strip()]
+                            if not script_paragraphs:
+                                script_paragraphs = [script]
+                            storyboard = ai_images.generate_storyboard(
+                                paragraphs=script_paragraphs,
+                                api_key=config.app.get("gemini_api_key", ""),
+                                aspect_ratio=str(params.video_aspect.value) if hasattr(params.video_aspect, 'value') else "9:16",
+                                predefined_prompts=st.session_state["ai_image_prompts"],
+                                visual_style=st.session_state.get("ai_visual_style", ""),
+                                research_context=st.session_state.get("topic_research", ""),
+                            )
+                            st.session_state["storyboard"] = storyboard
+            with sb_col2:
+                if st.button("Clear All", key="clear_ai_prompts", use_container_width=True):
+                    st.session_state["ai_image_prompts"] = []
+                    st.session_state["storyboard"] = []
+                    st.rerun()
+
+        # Storyboard Preview
+        if st.session_state.get("storyboard"):
+            st.write("---")
+            st.write("**Storyboard Preview**")
+            cols_per_row = 4
+            storyboard = st.session_state["storyboard"]
+            for row_start in range(0, len(storyboard), cols_per_row):
+                row_items = storyboard[row_start:row_start + cols_per_row]
+                cols = st.columns(cols_per_row)
+                for col_idx, item in enumerate(row_items):
+                    with cols[col_idx]:
+                        idx = item["index"]
+                        if item["image_path"] and os.path.exists(item["image_path"]):
+                            st.image(item["image_path"], use_container_width=True)
+                        else:
+                            st.warning("Failed")
+                        st.caption(f"**Scene {idx + 1}**")
+                        st.caption(item["paragraph"][:80] + "..." if len(item["paragraph"]) > 80 else item["paragraph"])
+                        if st.button("🔄", key=f"regen_img_{idx}", help="Regenerate this image"):
+                            with st.spinner(f"Regenerating..."):
+                                new_path = ai_images.regenerate_single_image(
+                                    prompt=item["prompt"],
+                                    api_key=config.app.get("gemini_api_key", ""),
+                                    aspect_ratio=str(params.video_aspect.value) if hasattr(params.video_aspect, 'value') else "9:16",
+                                    old_image_path=item.get("image_path"),
+                                )
+                                if new_path:
+                                    st.session_state["storyboard"][idx]["image_path"] = new_path
+                                    st.rerun()
 
 start_button = st.button(tr("Generate Video"), use_container_width=True, type="primary")
 if start_button:
