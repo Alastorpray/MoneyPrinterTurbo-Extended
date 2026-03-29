@@ -518,9 +518,14 @@ def generate_image_falai(prompt: str, aspect_ratio: str = "9:16", output_path: s
             "safety_checker": False,
         }
     else:  # flux-pro
+        size_map = {
+            "9:16": "portrait_16_9",
+            "16:9": "landscape_16_9",
+            "1:1": "square_hd",
+        }
         arguments = {
             "prompt": prompt,
-            "aspect_ratio": aspect_ratio.replace(":", ":"),
+            "image_size": size_map.get(aspect_ratio, "portrait_16_9"),
             "output_format": "png",
             "safety_tolerance": 6,  # most permissive
         }
